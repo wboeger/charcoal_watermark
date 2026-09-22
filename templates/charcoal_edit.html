@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Charcoal editor</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font: 16px/1.5 system-ui, sans-serif; max-width: 980px; margin: 2rem auto; padding: 0 1rem; }
+    nav { margin-bottom: 1.25rem; font-size: .95rem; }
+    nav a { color: #2563eb; text-decoration: none; margin-right: 1rem; }
+    h1 { margin: 0 0 .25rem; }
+    .orig { color: #777; font-size: .9rem; margin-top: 0; }
+    .layout { display: grid; grid-template-columns: 320px 1fr; gap: 2rem; align-items: start; }
+    @media (max-width: 760px){ .layout { grid-template-columns: 1fr; } }
+    .preview { background:
+      repeating-conic-gradient(#0000 0% 25%, rgba(127,127,127,.12) 0% 50%) 50% / 22px 22px;
+      border: 1px solid rgba(127,127,127,.3); border-radius: 8px; padding: 8px; text-align: center; }
+    .preview img { max-width: 100%; height: auto; border-radius: 4px; }
+    label { display: block; font-weight: 600; margin: 1rem 0 .3rem; }
+    .val { font-weight: 400; color: #777; }
+    input[type=range] { width: 100%; }
+    input[type=text] { width: 100%; padding: .5rem; box-sizing: border-box; }
+    .check { display: flex; align-items: center; gap: .5rem; margin-top: 1rem; }
+    .check label { margin: 0; }
+    .hint { font-weight: 400; color: #777; font-size: .82rem; }
+    button { margin-top: 1.5rem; padding: .7rem 1.2rem; font-size: 1rem; font-weight: 600; cursor: pointer; border: 0; border-radius: 6px; background: #16a34a; color: #fff; }
+    fieldset { border: 1px solid rgba(127,127,127,.3); border-radius: 8px; padding: .5rem 1rem 1rem; margin-top: 1.5rem; }
+    legend { font-weight: 700; padding: 0 .4rem; }
+    select { width: 100%; padding: .5rem; box-sizing: border-box; }
+    .engine { display: flex; gap: 1rem; margin-top: .5rem; }
+    .engine label { font-weight: 600; margin: 0; display: flex; align-items: center; gap: .4rem; }
+    button.gen { background: #7c3aed; }
+    button:disabled { opacity: .55; cursor: progress; }
+    .status { min-height: 1.2rem; margin: .75rem 0 0; font-size: .9rem; color: #777; text-align: center; }
+    .status.err { color: #dc2626; }
+    [hidden] { display: none !important; }
+    button.batch { background: #7c3aed; margin-top: .75rem; }
+    #overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; z-index: 10; }
+    #overlay .box { background: #1f2937; color: #fff; padding: 1.5rem 2rem; border-radius: 10px; text-align: center; max-width: 22rem; }
+    #overlay .spin { width: 34px; height: 34px; margin: 0 auto .8rem; border: 4px solid rgba(255,255,255,.25); border-top-color: #fff; border-radius: 50%; animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <nav>
+    <a href="/">Watermark chapters</a>
+    <a href="/charcoal">Charcoal drawing</a>
+  </nav>
+  <h1>Charcoal editor</h1>
+  <p class="orig">
+    {% if count and count > 1 %}{{ count }} images loaded &mdash; tuning on <b>{{ original }}</b>; the settings below apply to all.
+    {% else %}Source: {{ original }}{% endif %}
+  </p>
+
+  <div class="layout">
+    <form id="opts" action="/charcoal/save" method="post">
+      <input type="hidden" name="token" value="{{ token }}">
+
+      <fieldset>
+        <legend>Engine</legend>
+        <div class="engine">
+          {% if gemini_available %}
+          <label><input type="radio" name="engine" value="gemini" checked> AI charcoal (Gemini)</label>
+          <label><input type="radio" name="engine" value="classic"> Classic filter</label>
+          {% else %}
+          <label><input type="radio" name="engine" value="classic" checked> Classic filter</label>
+          {% endif %}
+        </div>
+        {% if not gemini_available %}
+        <p class="hint">AI charcoal is off: set <code>GEMINI_API_KEY</code> on the server to enable it.</p>
+        {% endif %}
+      </fieldset>
+
+      <fieldset id="classic-controls"{% if gemini_available %} hidden{% endif %}>
+        <legend>Rendering</legend>
+
+        <label for="blur">Smoothing (blur) <span class="val" id="blurv">12</span></label>
+        <input id="blur" name="blur" type="range" min="1" max="50" step="1" value="12">
+
+        <label for="depth">Charcoal depth <span class="val" id="depthv">100%</span></label>
+        <input id="depth" name="depth" type="range" min="0" max="100" step="5" value="100">
+
+        <label for="contrast">Contrast <span class="val" id="contrastv">1.2</span></label>
+        <input id="contrast" name="contrast" type="range" min="0.5" max="3" step="0.1" value="1.2">
+
+        <div class="check">
+          <input id="invert" name="invert" type="checkbox" value="1">
+          <label for="invert">Invert (white chalk on black)</label>
+        </div>
+      </fieldset>
+
+      {% if gemini_available %}
+      <fieldset id="ai-controls">
+        <legend>AI charcoal</legend>
+        <label for="style">Style</label>
+        <select id="style" name="style">
+          {% for key, meta in styles.items() %}
+          <option value="{{ key }}"{% if key == default_style %} selected{% endif %}>{{ meta[0] }}</option>
+          {% endfor %}
+        </select>
+        <div class="check">
+          <input id="sepia" name="sepia" type="checkbox" value="1">
+          <label for="sepia">Sepia tone <span class="hint">(warm brown on aged paper)</span></label>
+        </div>
+        <label for="detail">Extra direction <span class="hint">(medium only; won't change the subject)</span></label>
+        <input id="detail" name="detail" type="text" placeholder="e.g. warm sepia tone, heavy grain">
+        <button type="button" class="gen" id="generate">Generate preview</button>
+      </fieldset>
+      {% endif %}
+
+      <fieldset>
+        <legend>Save</legend>
+        <label for="filename">File name <span class="hint">(.png added; original kept in metadata)</span></label>
+        <input id="filename" name="filename" type="text" value="{{ default_name }}">
+
+        <label for="subdir">Subdirectory <span class="hint">(under the output folder; blank = root)</span></label>
+        <input id="subdir" name="subdir" type="text" placeholder="e.g. bryozoa/2026" value="">
+      </fieldset>
+
+      <button type="submit">Save as PNG</button>
+      {% if count and count > 1 %}
+      <button type="submit" class="batch" id="batch" formaction="/charcoal/batch">Process all {{ count }} &rarr; /charcoal folder</button>
+      {% endif %}
+    </form>
+
+    <div>
+      <div class="preview">
+        <img id="preview" alt="charcoal preview">
+      </div>
+      <p class="status" id="status"></p>
+    </div>
+  </div>
+
+  <div id="overlay" hidden>
+    <div class="box">
+      <div class="spin"></div>
+      <p id="ovtext">Processing images&hellip;</p>
+    </div>
+  </div>
+
+  <script>
+    const token = "{{ token }}";
+    const img = document.getElementById('preview');
+    const statusEl = document.getElementById('status');
+    const classicBox = document.getElementById('classic-controls');
+    const aiBox = document.getElementById('ai-controls');
+    const genBtn = document.getElementById('generate');
+    const style = document.getElementById('style');
+    const detail = document.getElementById('detail');
+    const sepia = document.getElementById('sepia');
+    const blur = document.getElementById('blur');
+    const depth = document.getElementById('depth');
+    const contrast = document.getElementById('contrast');
+    const invert = document.getElementById('invert');
+    let timer, reqId = 0, lastUrl;
+
+    const engine = () => document.querySelector('input[name=engine]:checked').value;
+
+    function query() {
+      const p = new URLSearchParams({ engine: engine() });
+      if (engine() === 'gemini') {
+        p.set('style', style.value);
+        p.set('detail', detail.value);
+        p.set('sepia', sepia.checked ? '1' : '0');
+      } else {
+        p.set('blur', blur.value);
+        p.set('depth', depth.value);
+        p.set('contrast', contrast.value);
+        p.set('invert', invert.checked ? '1' : '0');
+      }
+      p.set('_', Date.now());
+      return p.toString();
+    }
+
+    async function load() {
+      const id = ++reqId;
+      const ai = engine() === 'gemini';
+      statusEl.className = 'status';
+      statusEl.textContent = ai ? 'Generating with Gemini… (a few seconds)' : 'Rendering…';
+      if (ai && genBtn) genBtn.disabled = true;
+      try {
+        const res = await fetch(`/charcoal/preview/${token}?` + query());
+        if (!res.ok) throw new Error((await res.text()) || ('HTTP ' + res.status));
+        const blob = await res.blob();
+        if (id !== reqId) return;
+        if (lastUrl) URL.revokeObjectURL(lastUrl);
+        lastUrl = URL.createObjectURL(blob);
+        img.src = lastUrl;
+        statusEl.textContent = '';
+      } catch (e) {
+        if (id !== reqId) return;
+        statusEl.className = 'status err';
+        statusEl.textContent = 'Error: ' + (e.message || e);
+      } finally {
+        if (ai && genBtn) genBtn.disabled = false;
+      }
+    }
+
+    function labels() {
+      document.getElementById('blurv').textContent = blur.value;
+      document.getElementById('depthv').textContent = depth.value + '%';
+      document.getElementById('contrastv').textContent = Number(contrast.value).toFixed(1);
+    }
+    function refreshClassic() {
+      clearTimeout(timer);
+      timer = setTimeout(load, 150);
+    }
+
+    // Classic: live update as sliders move. Gemini: only on explicit request.
+    classicBox.addEventListener('input', () => { labels(); refreshClassic(); });
+    if (genBtn) genBtn.addEventListener('click', load);
+
+    function syncEngine() {
+      const ai = engine() === 'gemini';
+      if (aiBox) aiBox.hidden = !ai;
+      classicBox.hidden = ai;
+      if (ai) {
+        statusEl.className = 'status';
+        statusEl.textContent = 'Choose a style, then click \u201cGenerate preview\u201d.';
+      } else {
+        load();
+      }
+    }
+    document.querySelectorAll('input[name=engine]').forEach(r => r.addEventListener('change', syncEngine));
+
+    labels();
+    syncEngine();
+
+    const batchBtn = document.getElementById('batch');
+    if (batchBtn) batchBtn.addEventListener('click', () => {
+      const n = {{ count or 1 }};
+      document.getElementById('ovtext').textContent = engine() === 'gemini'
+        ? `Rendering ${n} image${n > 1 ? 's' : ''} with Gemini\u2026 roughly ${Math.ceil(n * 10)}s. Keep this tab open.`
+        : `Rendering ${n} image${n > 1 ? 's' : ''}\u2026`;
+      document.getElementById('overlay').hidden = false;
+    });
+  </script>
+</body>
+</html>

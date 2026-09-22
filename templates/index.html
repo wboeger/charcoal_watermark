@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chapter Watermarker</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font: 16px/1.5 system-ui, sans-serif; max-width: 640px; margin: 2.5rem auto; padding: 0 1rem; }
+    h1 { margin-bottom: .25rem; }
+    p.lead { color: #666; margin-top: 0; }
+    form { display: grid; gap: 1.25rem; margin-top: 2rem; }
+    label { display: block; font-weight: 600; margin-bottom: .35rem; }
+    input[type=file], input[type=number] { width: 100%; padding: .5rem; box-sizing: border-box; }
+    .row { display: flex; gap: 1rem; }
+    .row > div { flex: 1; }
+    .hint { font-weight: 400; color: #777; font-size: .85rem; }
+    button { padding: .7rem 1.2rem; font-size: 1rem; font-weight: 600; cursor: pointer; border: 0; border-radius: 6px; background: #2563eb; color: #fff; }
+    code { background: rgba(127,127,127,.15); padding: .1rem .3rem; border-radius: 4px; }
+    nav { margin-bottom: 1.5rem; font-size: .95rem; }
+    nav a { color: #2563eb; text-decoration: none; margin-right: 1rem; }
+    nav a.active { font-weight: 700; }
+  </style>
+</head>
+<body>
+  <nav>
+    <a href="/" class="active">Watermark chapters</a>
+    <a href="/charcoal">Charcoal drawing</a>
+  </nav>
+  <h1>Chapter Watermarker</h1>
+  <p class="lead">Watermark the first page of each <code>Heading&nbsp;1</code> chapter with the PNG whose file name contains the chapter's name.</p>
+
+  <form action="/process" method="post" enctype="multipart/form-data">
+    <div>
+      <label for="docx">Document (.docx)</label>
+      <input id="docx" name="docx" type="file" accept=".docx" required>
+    </div>
+
+    <div>
+      <label for="watermarks">Watermark images (.png)
+        <span class="hint">— one or many; a chapter is matched when its name appears in the file name.</span>
+      </label>
+      <input id="watermarks" name="watermarks" type="file" accept=".png" multiple required>
+    </div>
+
+    <div class="row">
+      <div>
+        <label for="opacity">Opacity <span class="hint">%</span></label>
+        <input id="opacity" name="opacity" type="number" min="1" max="100" value="50">
+      </div>
+      <div>
+        <label for="width_pct">Width <span class="hint">% of page</span></label>
+        <input id="width_pct" name="width_pct" type="number" min="1" max="100" value="25">
+      </div>
+    </div>
+
+    <button type="submit">Add watermarks</button>
+  </form>
+</body>
+</html>

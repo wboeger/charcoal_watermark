@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Charcoal ready</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font: 16px/1.5 system-ui, sans-serif; max-width: 680px; margin: 2.5rem auto; padding: 0 1rem; }
+    nav { margin-bottom: 1.5rem; font-size: .95rem; }
+    nav a { color: #2563eb; text-decoration: none; margin-right: 1rem; }
+    h1 { margin-bottom: .5rem; }
+    dl { display: grid; grid-template-columns: max-content 1fr; gap: .35rem 1rem; }
+    dt { font-weight: 600; color: #555; }
+    dd { margin: 0; word-break: break-all; }
+    code { background: rgba(127,127,127,.15); padding: .1rem .35rem; border-radius: 4px; }
+    a.dl { display: inline-block; margin: 1.25rem 0; padding: .7rem 1.2rem; font-weight: 600; background: #16a34a; color: #fff; border-radius: 6px; text-decoration: none; }
+    p.note { color: #777; font-size: .9rem; }
+  </style>
+</head>
+<body>
+  <nav>
+    <a href="/">Watermark chapters</a>
+    <a href="/charcoal">Charcoal drawing</a>
+  </nav>
+
+  {% if mode == "local" %}
+    <h1>Saved to disk &check;</h1>
+    <dl>
+      <dt>File</dt><dd><code>{{ filename }}</code></dd>
+      <dt>Location</dt><dd><code>{{ saved_path }}</code></dd>
+      <dt>Subpath</dt><dd><code>{{ rel_path }}</code> (under <code>{{ base }}</code>)</dd>
+      <dt>Original (metadata)</dt><dd><code>{{ original }}</code></dd>
+    </dl>
+    <a class="dl" href="/download/{{ token }}">Download a copy</a>
+  {% else %}
+    <h1>Ready to download &check;</h1>
+    <dl>
+      <dt>Download</dt><dd><code>{{ filename }}</code></dd>
+      {% if subpath %}<dt>Contains</dt><dd><code>{{ rel_path }}</code> (folder preserved inside the .zip)</dd>{% endif %}
+      <dt>Original (metadata)</dt><dd><code>{{ original }}</code></dd>
+    </dl>
+    <a class="dl" href="/download/{{ token }}">Download {{ "ZIP" if subpath else "PNG" }}</a>
+    <p class="note">The file is delivered to your computer.
+      {% if subpath %}Extract the .zip to recreate <code>{{ subpath }}/</code>.{% endif %}</p>
+  {% endif %}
+
+  <p><a href="/charcoal">&larr; Convert another photo</a></p>
+</body>
+</html>

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Watermark report</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font: 16px/1.5 system-ui, sans-serif; max-width: 720px; margin: 2.5rem auto; padding: 0 1rem; }
+    h1 { margin-bottom: .25rem; }
+    .summary { color: #444; }
+    a.dl { display: inline-block; margin: 1.25rem 0; padding: .7rem 1.2rem; font-weight: 600; background: #16a34a; color: #fff; border-radius: 6px; text-decoration: none; }
+    table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
+    th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid rgba(127,127,127,.25); }
+    .ok { color: #16a34a; font-weight: 600; }
+    .skip { color: #b45309; font-weight: 600; }
+    .muted { color: #777; }
+    a.back { color: #2563eb; }
+  </style>
+</head>
+<body>
+  <h1>Watermark report</h1>
+  <p class="summary">
+    {{ report.watermarked }} of {{ report.total_chapters }} chapter(s) watermarked
+    at {{ opacity_pct }}% opacity, {{ width_pct }}% width.
+  </p>
+
+  <a class="dl" href="/download/{{ token }}">Download watermarked .docx</a>
+
+  <table>
+    <thead><tr><th>Chapter (Heading 1)</th><th>Status</th><th>Watermark</th></tr></thead>
+    <tbody>
+      {% for c in report.chapters %}
+      <tr>
+        <td>{{ c.chapter or "(untitled)" }}</td>
+        {% if c.status == "watermarked" %}
+          <td class="ok">watermarked</td>
+          <td class="muted">{{ c.png }}</td>
+        {% elif c.status == "ambiguous" %}
+          <td class="skip">skipped — ambiguous</td>
+          <td class="muted">{{ c.candidates | join(", ") }}</td>
+        {% else %}
+          <td class="skip">skipped — no match</td>
+          <td class="muted">&mdash;</td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% if report.unused_pngs %}
+  <p class="muted">Unused watermark image(s): {{ report.unused_pngs | join(", ") }}</p>
+  {% endif %}
+
+  <p><a class="back" href="/">&larr; Watermark another document</a></p>
+</body>
+</html>
