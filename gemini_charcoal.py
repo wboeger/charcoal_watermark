@@ -108,12 +108,13 @@ class GeminiError(RuntimeError):
     """Raised when the Gemini request fails or returns no image."""
 
 
-def api_key() -> str | None:
+def env_key() -> str | None:
     return os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
 
 
 def available() -> bool:
-    return bool(api_key())
+    """True when a Gemini key is configured on the server (env)."""
+    return bool(env_key())
 
 
 def resolve_style(style: str | None) -> str:
@@ -172,15 +173,19 @@ def render(
     style: str = DEFAULT_STYLE,
     detail: str = "",
     sepia: bool = False,
+    api_key: str | None = None,
 ) -> Image.Image:
     """Return an artist-quality charcoal rendering of ``image_bytes`` from Gemini.
 
+    ``api_key`` (from the form) takes precedence over the server environment key.
     Raises ``GeminiError`` on missing key, transport/HTTP failure, or if the model
     returns no image (e.g. a safety refusal) \u2014 never a fabricated result.
     """
-    key = api_key()
+    key = (api_key or "").strip() or env_key()
     if not key:
-        raise GeminiError("GEMINI_API_KEY is not set on the server.")
+        raise GeminiError(
+            "No Gemini API key. Enter one in the form or set GEMINI_API_KEY on the server."
+        )
 
     parts = [_part_text(_build_prompt(style, detail, sepia))]
     parts.append(_part_text("SUBJECT image (redraw this exact scene, faithfully):"))

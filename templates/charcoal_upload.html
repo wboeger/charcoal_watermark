@@ -26,6 +26,7 @@
   <nav>
     <a href="/">Watermark chapters</a>
     <a href="/charcoal" class="active">Charcoal drawing</a>
+    <a href="/manual" download>Manual</a>
   </nav>
   <h1>Charcoal drawing</h1>
   <p class="lead">Turn photographs into charcoal drawings. Tune the look on the first image, then process them all into a <code>charcoal/</code> folder.</p>
@@ -41,7 +42,14 @@
       <input id="folder" name="photo" type="file" webkitdirectory directory multiple>
       <p class="hint">Every image in the folder is loaded; non-image files are ignored.</p>
     </details>
+    <div>
+      <label for="api_key">Gemini API key <span class="hint">(optional; only for the AI engine)</span></label>
+      <input id="api_key" name="api_key" type="password" autocomplete="off" placeholder="AIza… — leave blank to use the server key">
+      <p class="hint">Used only for AI charcoal (Google Gemini). Claude/Anthropic has no image-generation API, so it can't produce these drawings.</p>
+    </div>
     <button type="submit">Open editor</button>
   </form>
+
+  <p><a href="/manual" download>&#8681; Download the manual (MANUAL.md)</a></p>
 </body>
 </html>

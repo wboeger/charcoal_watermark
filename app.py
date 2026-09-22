@@ -41,6 +41,8 @@ _UPLOADS: dict[str, list[tuple[bytes, str]]] = {}
 # token -> (signature, png_bytes): last Gemini render, so Save reuses exactly
 # what the preview showed instead of paying for a second API call.
 _GEMINI_CACHE: dict[str, tuple[str, bytes]] = {}
+# token -> Gemini API key entered in the form (overrides the server env key).
+_KEYS: dict[str, str] = {}
 _STORE_CAP = 64
 
 # LOCAL_SAVE_DIR set   -> "local" mode: charcoal writes straight into a chosen
@@ -159,10 +161,11 @@ def _gemini_signature(src) -> str:
     return f"gemini|{style}|{int(_sepia_flag(src))}|{detail}"
 
 
-def _render_png(data: bytes, original: str, src) -> bytes:
+def _render_png(data: bytes, original: str, src, api_key: str | None = None) -> bytes:
     """Render one charcoal PNG for the requested engine (no caching).
 
-    ``engine=gemini`` -> artist-quality Gemini render (faithful to the subject).
+    ``engine=gemini`` -> artist-quality Gemini render (faithful to the subject),
+    using ``api_key`` if given, else the server env key.
     Anything else -> deterministic local filter (no hallucination possible).
     Raises ``gem.GeminiError`` if a Gemini render fails.
     """
@@ -173,13 +176,14 @@ def _render_png(data: bytes, original: str, src) -> bytes:
             style=gem.resolve_style(src.get("style")),
             detail=src.get("detail", ""),
             sepia=_sepia_flag(src),
+            api_key=api_key,
         )
         return ch.to_png_bytes(image, original)
     image = ch.render(data, **_charcoal_opts(src))
     return ch.to_png_bytes(image, original)
 
 
-def _charcoal_png(token: str, data: bytes, original: str, src) -> bytes:
+def _charcoal_png(token: str, data: bytes, original: str, src, api_key: str | None = None) -> bytes:
     """Single-image render with a per-token Gemini cache, so Save reuses the exact
     image the preview produced instead of paying for a second API call."""
     if (src.get("engine") or "classic").lower() == "gemini":
@@ -187,10 +191,10 @@ def _charcoal_png(token: str, data: bytes, original: str, src) -> bytes:
         cached = _GEMINI_CACHE.get(token)
         if cached and cached[0] == signature:
             return cached[1]
-        png = _render_png(data, original, src)
+        png = _render_png(data, original, src, api_key)
         _remember(_GEMINI_CACHE, token, (signature, png))
         return png
-    return _render_png(data, original, src)
+    return _render_png(data, original, src, api_key)
 
 
 def _clean_subpath(raw: str | None) -> str:
@@ -242,6 +246,14 @@ def _collect_images(files) -> list[tuple[bytes, str]]:
     return items
 
 
+def _session_key(token: str, src) -> str | None:
+    """Persist an API key submitted via the form and return the session key."""
+    submitted = (src.get("api_key") or "").strip()
+    if submitted:
+        _remember(_KEYS, token, submitted)
+    return _KEYS.get(token) or None
+
+
 @app.post("/charcoal/edit")
 def charcoal_edit():
     items = _collect_images(request.files.getlist("photo"))
@@ -249,6 +261,7 @@ def charcoal_edit():
         abort(400, "Please upload at least one image.")
     token = uuid.uuid4().hex
     _remember(_UPLOADS, token, items)
+    session_key = _session_key(token, request.form)
     first_name = items[0][1]
     stem = os.path.splitext(first_name)[0]
     return render_template(
@@ -258,7 +271,8 @@ def charcoal_edit():
         count=len(items),
         names=[n for _, n in items],
         default_name=f"{stem}_charcoal",
-        gemini_available=gem.available(),
+        gemini_available=gem.available() or bool(session_key),
+        has_env_key=gem.available(),
         styles=gem.STYLES,
         default_style=gem.DEFAULT_STYLE,
     )
@@ -271,7 +285,7 @@ def charcoal_preview(token: str):
         abort(404)
     data, original = entry[0]
     try:
-        png = _charcoal_png(token, data, original, request.args)
+        png = _charcoal_png(token, data, original, request.args, _KEYS.get(token) or None)
     except gem.GeminiError as exc:
         return str(exc), 502, {"Content-Type": "text/plain; charset=utf-8"}
     return send_file(io.BytesIO(png), mimetype="image/png")
@@ -279,13 +293,15 @@ def charcoal_preview(token: str):
 
 @app.post("/charcoal/save")
 def charcoal_save():
-    entry = _UPLOADS.get(request.form.get("token", ""))
+    up_token = request.form.get("token", "")
+    entry = _UPLOADS.get(up_token)
     if not entry:
         abort(404, "This editing session expired. Please re-upload the photo.")
     data, original = entry[0]
 
+    key = _session_key(up_token, request.form)
     try:
-        png = _charcoal_png(request.form.get("token", ""), data, original, request.form)
+        png = _charcoal_png(up_token, data, original, request.form, key)
     except gem.GeminiError as exc:
         abort(502, str(exc))
 
@@ -347,9 +363,11 @@ def _unique_name(name: str, used: set[str]) -> str:
 def charcoal_batch():
     """Render every uploaded image with the chosen protocol and collect the PNGs
     together in a ``charcoal/`` folder (on disk in local mode, else a .zip)."""
-    entry = _UPLOADS.get(request.form.get("token", ""))
+    up_token = request.form.get("token", "")
+    entry = _UPLOADS.get(up_token)
     if not entry:
         abort(404, "This editing session expired. Please re-upload the photos.")
+    key = _session_key(up_token, request.form)
 
     rendered: list[tuple[str, bytes]] = []
     errors: list[tuple[str, str]] = []
@@ -357,7 +375,7 @@ def charcoal_batch():
     for data, original in entry:
         stem = secure_filename(os.path.splitext(original)[0]) or "image"
         try:
-            png = _render_png(data, original, request.form)
+            png = _render_png(data, original, request.form, key)
         except gem.GeminiError as exc:
             errors.append((original, str(exc)))
             continue
@@ -396,6 +414,30 @@ def charcoal_batch():
         "charcoal_batch.html", mode="download", token=token,
         count=len(rendered), names=[n for n, _ in rendered], errors=errors,
         folder=f"{_BATCH_FOLDER}/", base=None,
+    )
+
+
+@app.post("/charcoal/key")
+def charcoal_key():
+    """Store or clear the Gemini API key for a session (used by the live preview)."""
+    token = request.form.get("token", "")
+    if token not in _UPLOADS:
+        abort(404)
+    key = (request.form.get("api_key") or "").strip()
+    if key:
+        _remember(_KEYS, token, key)
+    else:
+        _KEYS.pop(token, None)
+    return "", 204
+
+
+@app.get("/manual")
+def manual():
+    path = Path(__file__).with_name("MANUAL.md")
+    if not path.exists():
+        abort(404, "Manual not found.")
+    return send_file(
+        path, as_attachment=True, download_name="MANUAL.md", mimetype="text/markdown"
     )
 
 
