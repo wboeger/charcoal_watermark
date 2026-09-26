@@ -27,6 +27,19 @@ def _blur(arr: np.ndarray, radius: float) -> np.ndarray:
     return np.asarray(im.filter(ImageFilter.GaussianBlur(radius)), dtype=np.float32)
 
 
+def _smear(field: np.ndarray, tx: np.ndarray, ty: np.ndarray, length: int) -> np.ndarray:
+    """Line-integral convolution: average ``field`` along the per-pixel (tx, ty)
+    direction, producing strokes that follow the drawing's form."""
+    h, w = field.shape
+    ys, xs = np.indices((h, w), dtype=np.float32)
+    acc = np.zeros_like(field)
+    for k in range(-length, length + 1):
+        sx = np.clip(xs + tx * k, 0, w - 1).astype(np.int32)
+        sy = np.clip(ys + ty * k, 0, h - 1).astype(np.int32)
+        acc += field[sy, sx]
+    return acc / (2 * length + 1)
+
+
 def render(
     image_bytes: bytes,
     blur: float = 12.0,
@@ -58,34 +71,47 @@ def render(
     gray = np.asarray(gray_img, dtype=np.float32)
     h, w = gray.shape
 
-    # 1) Fine line pass: inverted-blur color dodge -> crisp detail lines on white.
-    inv_blur = _blur(255.0 - gray, blur)
-    denom = np.clip(255.0 - inv_blur, 1.0, 255.0)
-    sketch = np.minimum(gray * 255.0 / denom, 255.0) / 255.0  # ~1 white, dips at lines
-
-    # 2) Structural stroke pass: gradient magnitude -> bold darkened edges.
-    gy, gx = np.gradient(_blur(gray, max(0.6, blur * 0.2)))
-    grad = np.sqrt(gx * gx + gy * gy)
-    grad /= grad.max() + 1e-6
-    edge_light = 1.0 - np.clip(grad * 3.5, 0.0, 1.0)  # 0 on strong edges .. 1
-
-    # 3) Tonal shading pass: contrast-stretched, shadow-deepened, then smudged.
+    # Tonal base: contrast around mid-gray, then deepen shadows by ``depth``.
     tone = np.clip((gray - 128.0) * contrast + 128.0, 0.0, 255.0) / 255.0
-    tone = tone ** (1.0 + 0.8 * depth)                 # deepen darks with depth
-    shade = np.minimum(tone, _blur(tone * 255.0, blur * 0.4) / 255.0)  # rubbed
+    tone = tone ** (1.0 + 0.8 * depth)
+    demand = 1.0 - tone                                # how much charcoal a pixel wants
 
-    # Combine subtractively over white paper (each layer only darkens).
-    light = sketch
-    light *= 1.0 - depth * (1.0 - shade)               # tonal charcoal fill
-    light *= 1.0 - 0.55 * (1.0 - edge_light)           # bold strokes
+    # Form field: unit tangent (along edges), blended with a diagonal in flat areas
+    # so open regions get natural diagonal hatching.
+    gyf, gxf = np.gradient(_blur(gray, max(1.0, blur * 0.3)))
+    mag = np.sqrt(gxf * gxf + gyf * gyf)
+    m = mag / (mag.max() + 1e-6)
+    inv = 1.0 / (mag + 1e-6)
+    tx, ty = -gyf * inv, gxf * inv
+    wgt = np.clip(m * 4.0, 0.0, 1.0)
+    tx = tx * wgt + 0.7071 * (1.0 - wgt)
+    ty = ty * wgt + 0.7071 * (1.0 - wgt)
+    nrm = np.sqrt(tx * tx + ty * ty) + 1e-6
+    tx, ty = tx / nrm, ty / nrm
 
-    # 4) Paper grain: subtle fibre + speckle, deterministic.
+    # Charcoal stroke texture: smear noise along the form (line-integral convolution).
+    rng = np.random.default_rng(7)
+    length = int(np.clip(round(blur), 5, 18))
+    strokes = _smear(rng.standard_normal((h, w)).astype(np.float32), tx, ty, length)
+    strokes = (strokes - strokes.mean()) / (strokes.std() + 1e-6)
+    strokes = np.clip(strokes * 0.5 + 0.5, 0.0, 1.0)   # 0..1 stroke field
+
+    edge = np.clip(m * 3.5, 0.0, 1.0)                   # crisp contour lines
+
+    # Deposit charcoal: tone demand, textured by strokes, with edges on top.
+    deposit = demand * (0.35 + 0.95 * strokes) + 0.45 * edge
+    deposit = np.clip(deposit, 0.0, 1.0)
+    light = 1.0 - deposit
+
+    # Paper tooth + grain (deterministic, subtle).
     if texture > 0.0:
-        rng = np.random.default_rng(12345)
-        grain = rng.standard_normal((h, w)).astype(np.float32)
-        fibre = _blur(rng.random((h, w)).astype(np.float32) * 255.0, 1.2) / 255.0
-        light -= texture * 0.05 * grain * (1.0 - light)          # grain within strokes
-        light -= texture * 0.03 * (fibre - fibre.mean())         # faint paper tooth
+        fibre = _blur(rng.random((h, w)).astype(np.float32) * 255.0, 1.0) / 255.0
+        light -= texture * 0.04 * (fibre - fibre.mean())
+        light -= texture * 0.05 * (rng.random((h, w)).astype(np.float32) - 0.5) * deposit
+
+    # Keep the paper clean: force near-white, edge-free areas to pure white (no halo).
+    background = (demand < 0.06) & (edge < 0.08)
+    light = np.where(background, 1.0, light)
 
     out = np.clip(light * 255.0, 0.0, 255.0)
     if invert:
