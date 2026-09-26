@@ -55,10 +55,15 @@ _PROMPT_HEAD = (
     "You are a master fine artist. Redraw the SUBJECT image (provided below) as a "
     "highly detailed charcoal and graphite illustration of the very same subject \u2014 "
     "never a new or different subject.\n"
-    "FIDELITY: reproduce the subject's shapes, pose, proportions, spatial layout and "
-    "composition exactly, framed the same way. Do NOT add, remove, relocate or invent "
-    "any object, element, text, marking or detail that is not present in the subject "
-    "image; keep every real structural detail accurate.\n"
+    "ABSOLUTE FIDELITY \u2014 this is a scientific specimen illustration, do NOT hallucinate: "
+    "preserve the animal's exact morphology and anatomy. Keep the identical outline and "
+    "silhouette, the same number, shape, length, position and orientation of every body "
+    "part (head, eyes, antennae, mouthparts, every leg and leg segment, wings, wing "
+    "venation, body segments, spines and hairs), the same proportions, pose and framing, "
+    "and the same surface patterns and markings. Do NOT add, remove, duplicate, "
+    "relocate, straighten, bend, lengthen, shorten or otherwise restyle any anatomical "
+    "feature, and invent nothing that is not clearly present in the subject image. Trace "
+    "the real structure faithfully; only the drawing medium may change.\n"
     "STYLE: "
 )
 
@@ -203,7 +208,7 @@ def render(
 
     payload = json.dumps({
         "contents": [{"parts": parts}],
-        "generationConfig": {"responseModalities": ["IMAGE"]},
+        "generationConfig": {"responseModalities": ["IMAGE"], "temperature": 0.2},
     }).encode("utf-8")
 
     url = _ENDPOINT.format(model=MODEL)
