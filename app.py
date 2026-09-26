@@ -26,7 +26,11 @@ from werkzeug.utils import secure_filename
 import watermarker as wm
 import charcoal as ch
 import gemini_charcoal as gem
-from PIL import Image, UnidentifiedImageError
+from PIL import Image
+
+# This is a trusted local/self-hosted tool processing the user's own photos, so
+# lift Pillow's decompression-bomb guard (large scans/panoramas are legitimate).
+Image.MAX_IMAGE_PIXELS = None
 
 app = Flask(__name__)
 # Max upload size per request. Folder uploads of many photos are large, so this
@@ -253,7 +257,7 @@ def _collect_images(files) -> list[tuple[bytes, str]]:
         try:
             with Image.open(io.BytesIO(data)) as im:
                 im.verify()
-        except (UnidentifiedImageError, OSError):
+        except Exception:
             continue
         items.append((data, name))
     return items
