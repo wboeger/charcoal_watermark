@@ -29,7 +29,20 @@ import gemini_charcoal as gem
 from PIL import Image, UnidentifiedImageError
 
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 64 * 1024 * 1024  # 64 MB
+# Max upload size per request. Folder uploads of many photos are large, so this
+# defaults high and is overridable with MAX_UPLOAD_MB.
+MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "1024"))
+app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_MB * 1024 * 1024
+
+
+@app.errorhandler(413)
+def _too_large(_):
+    return (
+        f"Upload too large — the limit is {MAX_UPLOAD_MB} MB per upload. "
+        "Select fewer or smaller images, or raise MAX_UPLOAD_MB on the server.",
+        413,
+        {"Content-Type": "text/plain; charset=utf-8"},
+    )
 
 # Result store: token -> (kind, ref, name). kind == "path" (temp file on the
 # server) or "bytes" (in-memory payload). Output is always delivered to the user
