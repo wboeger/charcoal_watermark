@@ -287,7 +287,7 @@ def charcoal_edit():
         original=first_name,
         count=len(items),
         names=[n for _, n in items],
-        default_name=f"{stem}_charcoal",
+        default_name=f"{stem}char",
         gemini_available=gem.available() or bool(session_key),
         has_env_key=gem.available(),
         styles=gem.STYLES,
@@ -322,7 +322,7 @@ def charcoal_save():
     except gem.GeminiError as exc:
         abort(502, str(exc))
 
-    requested = (request.form.get("filename") or "").strip() or f"{os.path.splitext(original)[0]}_charcoal"
+    requested = (request.form.get("filename") or "").strip() or f"{os.path.splitext(original)[0]}char"
     safe = secure_filename(requested) or "charcoal"
     if not safe.lower().endswith(".png"):
         safe += ".png"
@@ -396,7 +396,7 @@ def charcoal_batch():
         except gem.GeminiError as exc:
             errors.append((original, str(exc)))
             continue
-        rendered.append((_unique_name(f"{stem}_charcoal.png", used), png))
+        rendered.append((_unique_name(f"{stem}char.png", used), png))
 
     if not rendered:
         detail = "; ".join(f"{n}: {e}" for n, e in errors) or "no valid images."

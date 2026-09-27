@@ -38,17 +38,15 @@ _REFERENCE_PATH = Path(__file__).with_name("references") / "charcoal_reference.p
 # The user-authored charcoal art direction \u2014 the fixed aesthetic every render aims
 # for. Applied to the *uploaded* subject (never a new one) so the app stays faithful.
 _USER_STYLE = (
-    "The illustration must be executed on a sheet of textured, off-white cotton "
-    "drawing paper, showing visible paper grain. Apply a style that features rich, "
-    "velvety deep blacks and dramatic, high-contrast values on the subject itself. "
-    "The background must be PURE WHITE, empty drawing paper. Do NOT add any gray wash, "
-    "smudged clouds, atmospheric haze, halo, aura, vignette or gradient in the negative "
-    "space around the subject \u2014 the area surrounding the subject must stay clean white, "
-    "with at most a faint contact shadow directly beneath it and a few tiny stray "
-    "speckles. Keep the deep blacks confined to the subject itself. Define the form with "
-    "precise rendering and cross-hatching, accented by "
-    "deliberate eraser marks to create highlights. Maintain a raw, biological, "
-    "specimen-illustration feel."
+    "Draw the subject in BLACK CHARCOAL on a PURE WHITE background. Render the "
+    "subject with rich, velvety black charcoal \u2014 strong tonal range, fine "
+    "cross-hatching, smudged shading and eraser-mark highlights \u2014 keeping all the "
+    "dark values confined to the subject itself. The surrounding background must be "
+    "plain, clean, pure white and completely empty: no gray wash, clouds, haze, halo, "
+    "aura, vignette, gradient or texture, at most a faint contact shadow directly "
+    "beneath the subject. Do NOT add any labels, text, captions, letters, numbers, "
+    "arrows, scale bars, borders, frames, signatures or watermarks anywhere in the "
+    "image. Keep a clean, raw, biological specimen-illustration feel."
 )
 
 _PROMPT_HEAD = (
