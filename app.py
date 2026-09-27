@@ -32,6 +32,18 @@ from PIL import Image
 # lift Pillow's decompression-bomb guard (large scans/panoramas are legitimate).
 Image.MAX_IMAGE_PIXELS = None
 
+# Extra decoders so common phone/web formats import too (HEIC/HEIF from iPhones,
+# AVIF). Optional: the app still runs if a plugin is missing.
+try:
+    import pillow_heif
+    pillow_heif.register_heif_opener()
+except Exception:
+    pass
+try:
+    import pillow_avif  # noqa: F401  (registers the AVIF opener on import)
+except Exception:
+    pass
+
 app = Flask(__name__)
 # Max upload size per request. Folder uploads of many photos are large, so this
 # defaults high and is overridable with MAX_UPLOAD_MB.
@@ -235,7 +247,10 @@ def charcoal_page():
     return render_template("charcoal_upload.html")
 
 
-_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff"}
+_IMAGE_EXTS = {
+    ".png", ".jpg", ".jpeg", ".jpe", ".jfif", ".webp", ".gif", ".bmp",
+    ".tif", ".tiff", ".heic", ".heif", ".avif", ".jp2", ".j2k", ".jpf", ".ico",
+}
 
 
 def _collect_images(files) -> list[tuple[bytes, str]]:
