@@ -43,6 +43,10 @@ try:
     import pillow_avif  # noqa: F401  (registers the AVIF opener on import)
 except Exception:
     pass
+try:
+    import pymupdf  # PDF rasterization for watermark inputs
+except Exception:
+    pymupdf = None
 
 app = Flask(__name__)
 # Max upload size per request. Folder uploads of many photos are large, so this
@@ -108,15 +112,40 @@ def health():
     return "ok", 200
 
 
+def _rasterize_watermark(data: bytes, filename: str) -> bytes:
+    """Return RGBA PNG bytes for a watermark upload.
+
+    PDFs are rasterized (first page, transparency preserved for vector logos);
+    other image types are opened and normalized to RGBA PNG.
+    """
+    if filename.lower().endswith(".pdf"):
+        if pymupdf is None:
+            raise RuntimeError("PDF support unavailable (pymupdf not installed).")
+        doc = pymupdf.open(stream=data, filetype="pdf")
+        try:
+            pix = doc[0].get_pixmap(matrix=pymupdf.Matrix(3, 3), alpha=True)
+            return pix.tobytes("png")
+        finally:
+            doc.close()
+    with Image.open(io.BytesIO(data)) as im:
+        buf = io.BytesIO()
+        im.convert("RGBA").save(buf, format="PNG")
+        return buf.getvalue()
+
+
 @app.post("/process")
 def process():
     upload = request.files.get("docx")
     if not upload or not upload.filename.lower().endswith(".docx"):
         abort(400, "Please upload a .docx file.")
 
-    pngs = [f for f in request.files.getlist("watermarks") if f and f.filename.lower().endswith(".png")]
-    if not pngs:
-        abort(400, "Please upload at least one .png watermark.")
+    accepted = (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".pdf")
+    marks = [
+        f for f in request.files.getlist("watermarks")
+        if f and f.filename and f.filename.lower().endswith(accepted)
+    ]
+    if not marks:
+        abort(400, "Please upload at least one watermark (.png, .jpg, .tif or .pdf).")
 
     opacity = _pct(request.form.get("opacity"), 50)
     width_pct = _pct(request.form.get("width_pct"), 25)
@@ -127,12 +156,19 @@ def process():
     upload.save(docx_path)
 
     pairs: list[tuple[str, str]] = []
-    for i, png in enumerate(pngs):
-        original = png.filename  # match on the ORIGINAL name (accents/spaces intact)
-        safe = secure_filename(png.filename) or f"watermark_{i}.png"
-        path = os.path.join(workdir, f"{i}_{safe}")  # index-prefixed: no disk collisions
-        png.save(path)
+    for i, mark in enumerate(marks):
+        original = mark.filename  # match on the ORIGINAL name (accents/spaces intact)
+        try:
+            png = _rasterize_watermark(mark.read(), original)
+        except Exception:
+            continue  # skip unreadable/corrupt watermark
+        stem = secure_filename(os.path.splitext(original)[0]) or f"watermark_{i}"
+        path = os.path.join(workdir, f"{i}_{stem}.png")  # normalized RGBA PNG on disk
+        with open(path, "wb") as fh:
+            fh.write(png)
         pairs.append((path, original))
+    if not pairs:
+        abort(400, "None of the uploaded watermarks could be read.")
 
     stem = os.path.splitext(docx_name)[0]
     download_name = f"{stem}_watermarked.docx"
