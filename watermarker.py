@@ -59,7 +59,7 @@ _ANCHOR_XML = (
 @dataclass
 class ChapterResult:
     chapter: str
-    status: str  # "watermarked" | "no_match" | "ambiguous"
+    status: str  # "watermarked" | "no_match" | "ambiguous" | "duplicate"
     png: str | None = None
     candidates: list[str] = field(default_factory=list)
 
@@ -167,6 +167,13 @@ def process(
             continue
 
         png_path, png_name = matches[0]
+        if png_path in used_pngs:
+            # Name already placed earlier — only the first page where it occurs
+            # gets the figure; later occurrences are reported, not re-stamped.
+            report.chapters.append(
+                ChapterResult(chapter=chapter, status="duplicate", png=png_name)
+            )
+            continue
         if png_path not in processed:
             dst = os.path.join(workdir, f"_wm_{len(processed)}.png")
             px_w, px_h = _make_translucent(png_path, opacity, dst)

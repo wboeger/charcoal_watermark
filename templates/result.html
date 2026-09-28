@@ -39,6 +39,9 @@
         {% elif c.status == "ambiguous" %}
           <td class="skip">skipped — ambiguous</td>
           <td class="muted">{{ c.candidates | join(", ") }}</td>
+        {% elif c.status == "duplicate" %}
+          <td class="skip">skipped &mdash; already placed on an earlier page</td>
+          <td class="muted">{{ c.png }}</td>
         {% else %}
           <td class="skip">skipped — no match</td>
           <td class="muted">&mdash;</td>
