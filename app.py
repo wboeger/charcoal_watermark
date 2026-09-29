@@ -135,9 +135,12 @@ def _rasterize_watermark(data: bytes, filename: str) -> bytes:
 
 @app.post("/process")
 def process():
-    upload = request.files.get("docx")
-    if not upload or not upload.filename.lower().endswith(".docx"):
-        abort(400, "Please upload a .docx file.")
+    docx_files = [
+        f for f in request.files.getlist("docx")
+        if f and f.filename and f.filename.lower().endswith(".docx")
+    ]
+    if not docx_files:
+        abort(400, "Please upload at least one .docx file (or a folder of them).")
 
     accepted = (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".pdf")
     marks = [
@@ -151,40 +154,77 @@ def process():
     width_pct = _pct(request.form.get("width_pct"), 25)
 
     workdir = tempfile.mkdtemp(prefix="wm_")
-    docx_name = secure_filename(upload.filename) or "document.docx"
-    docx_path = os.path.join(workdir, docx_name)
-    upload.save(docx_path)
 
+    # Rasterize the watermark set once; it is shared across every document.
     pairs: list[tuple[str, str]] = []
     for i, mark in enumerate(marks):
-        original = mark.filename  # match on the ORIGINAL name (accents/spaces intact)
+        original = os.path.basename(mark.filename.replace("\\", "/"))
         try:
             png = _rasterize_watermark(mark.read(), original)
         except Exception:
-            continue  # skip unreadable/corrupt watermark
+            continue
         stem = secure_filename(os.path.splitext(original)[0]) or f"watermark_{i}"
-        path = os.path.join(workdir, f"{i}_{stem}.png")  # normalized RGBA PNG on disk
+        path = os.path.join(workdir, f"wm_{i}_{stem}.png")
         with open(path, "wb") as fh:
             fh.write(png)
         pairs.append((path, original))
     if not pairs:
         abort(400, "None of the uploaded watermarks could be read.")
 
-    stem = os.path.splitext(docx_name)[0]
-    download_name = f"{stem}_watermarked.docx"
-    output_path = os.path.join(workdir, download_name)
+    # Watermark each document with the shared set.
+    docs = []
+    for j, up in enumerate(docx_files):
+        base = os.path.basename(up.filename.replace("\\", "/"))
+        docx_name = secure_filename(base) or f"document_{j}.docx"
+        in_path = os.path.join(workdir, f"in_{j}_{docx_name}")
+        up.save(in_path)
+        out_name = f"{os.path.splitext(docx_name)[0]}_watermarked.docx"
+        out_path = os.path.join(workdir, f"out_{j}_{out_name}")
+        report = wm.process(in_path, pairs, out_path, opacity=opacity, width_pct=width_pct, workdir=workdir)
+        with open(out_path, "rb") as fh:
+            docs.append({"src": base, "name": out_name, "data": fh.read(), "report": report})
 
-    report = wm.process(docx_path, pairs, output_path, opacity=opacity, width_pct=width_pct, workdir=workdir)
+    # Single document -> the classic per-chapter report page.
+    if len(docs) == 1:
+        d = docs[0]
+        token = uuid.uuid4().hex
+        _remember(_OUTPUTS, token, ("bytes", d["data"], d["name"]))
+        return render_template(
+            "result.html", report=d["report"], token=token,
+            opacity_pct=round(opacity * 100), width_pct=round(width_pct * 100),
+        )
+
+    # Multiple documents -> collect all into a "watermarked" folder / zip.
+    used: set[str] = set()
+    for d in docs:
+        d["name"] = _unique_name(d["name"], used)
 
     token = uuid.uuid4().hex
-    _remember(_OUTPUTS, token, ("path", output_path, download_name))
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for d in docs:
+            zf.writestr(f"watermarked/{d['name']}", d["data"])
+    _remember(_OUTPUTS, token, ("bytes", buf.getvalue(), "watermarked.zip"))
 
+    saved_dir = None
+    if LOCAL_SAVE_DIR is not None:
+        dest_dir = LOCAL_SAVE_DIR / "watermarked"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        for d in docs:
+            _unique_path(dest_dir, d["name"]).write_bytes(d["data"])
+        saved_dir = str(dest_dir)
+
+    files = [
+        {"src": d["src"], "name": d["name"],
+         "watermarked": d["report"].watermarked, "total": d["report"].total_chapters}
+        for d in docs
+    ]
     return render_template(
-        "result.html",
-        report=report,
-        token=token,
-        opacity_pct=round(opacity * 100),
-        width_pct=round(width_pct * 100),
+        "result_batch.html",
+        token=token, files=files, count=len(docs),
+        total_watermarked=sum(d["report"].watermarked for d in docs),
+        opacity_pct=round(opacity * 100), width_pct=round(width_pct * 100),
+        saved_dir=saved_dir, base=(str(LOCAL_SAVE_DIR) if LOCAL_SAVE_DIR else None),
     )
 
 
@@ -269,11 +309,11 @@ def _clean_subpath(raw: str | None) -> str:
 
 
 def _unique_path(directory: Path, filename: str) -> Path:
-    """Return a non-clobbering path in ``directory`` for ``filename`` (.png)."""
+    """Return a non-clobbering path in ``directory`` for ``filename``."""
     dest = directory / filename
-    stem, n = dest.stem, 1
+    stem, ext, n = dest.stem, dest.suffix, 1
     while dest.exists():
-        dest = directory / f"{stem}_{n}.png"
+        dest = directory / f"{stem}_{n}{ext}"
         n += 1
     return dest
 

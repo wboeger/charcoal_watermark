@@ -33,8 +33,14 @@
 
   <form action="/process" method="post" enctype="multipart/form-data">
     <div>
-      <label for="docx">Document (.docx)</label>
-      <input id="docx" name="docx" type="file" accept=".docx" required>
+      <label for="docx">Documents (.docx)
+        <span class="hint">&mdash; one, many, or a whole folder; each file is watermarked separately.</span>
+      </label>
+      <input id="docx" name="docx" type="file" accept=".docx" multiple>
+      <details>
+        <summary class="hint" style="cursor:pointer">&hellip;or choose a whole folder</summary>
+        <input id="docxfolder" name="docx" type="file" webkitdirectory directory multiple>
+      </details>
     </div>
 
     <div>
