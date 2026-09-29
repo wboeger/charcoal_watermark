@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import io
 import os
+import shutil
+import subprocess
 import tempfile
 import uuid
 import zipfile
@@ -133,6 +135,53 @@ def _rasterize_watermark(data: bytes, filename: str) -> bytes:
         return buf.getvalue()
 
 
+_SOFFICE = shutil.which("soffice") or shutil.which("libreoffice")
+
+
+def _docx_to_pdf(paths: list[str], outdir: str) -> dict[str, str]:
+    """Convert .docx files to PDF via headless LibreOffice; return {docx_path: pdf_path}."""
+    if not _SOFFICE:
+        raise RuntimeError("PDF export needs LibreOffice (soffice) installed on the server.")
+    profile = os.path.join(outdir, "_lo_profile")
+    subprocess.run(
+        [_SOFFICE, "--headless", "--norestore",
+         f"-env:UserInstallation=file://{profile}",
+         "--convert-to", "pdf", "--outdir", outdir, *paths],
+        check=True, capture_output=True, timeout=300,
+    )
+    out = {}
+    for p in paths:
+        pdf = os.path.join(outdir, os.path.splitext(os.path.basename(p))[0] + ".pdf")
+        if not os.path.exists(pdf):
+            raise RuntimeError(f"PDF conversion failed for {os.path.basename(p)}")
+        out[p] = pdf
+    return out
+
+
+def _stamp_diagonal(pdf_bytes: bytes, text: str, opacity: float) -> bytes:
+    """Overlay a single diagonal, semi-transparent grey text watermark on every page."""
+    if pymupdf is None:
+        raise RuntimeError("Diagonal watermark needs pymupdf installed.")
+    doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        for page in doc:
+            r = page.rect
+            diag = (r.width ** 2 + r.height ** 2) ** 0.5
+            unit = pymupdf.get_text_length(text, fontname="helv", fontsize=1) or 1.0
+            fontsize = max(12.0, min(400.0, diag * 0.8 / unit))
+            width = pymupdf.get_text_length(text, fontname="helv", fontsize=fontsize)
+            pivot = pymupdf.Point(r.width / 2, r.height / 2)
+            origin = pymupdf.Point(pivot.x - width / 2, pivot.y + fontsize * 0.35)
+            page.insert_text(
+                origin, text, fontname="helv", fontsize=fontsize,
+                color=(0.5, 0.5, 0.5), fill_opacity=opacity,
+                morph=(pivot, pymupdf.Matrix(1, 0, 0, 1, 0, 0).prerotate(45)),
+            )
+        return doc.tobytes()
+    finally:
+        doc.close()
+
+
 @app.post("/process")
 def process():
     docx_files = [
@@ -152,6 +201,11 @@ def process():
 
     opacity = _pct(request.form.get("opacity"), 50)
     width_pct = _pct(request.form.get("width_pct"), 25)
+    to_pdf = str(request.form.get("to_pdf", "")).lower() in ("1", "true", "on", "yes")
+    diagonal = (request.form.get("diagonal_text") or "").strip()
+    diagonal_opacity = _pct(request.form.get("diagonal_opacity"), 25)
+    if diagonal:
+        to_pdf = True  # the diagonal mark is stamped onto the PDF output
 
     workdir = tempfile.mkdtemp(prefix="wm_")
 
@@ -182,7 +236,25 @@ def process():
         out_path = os.path.join(workdir, f"out_{j}_{out_name}")
         report = wm.process(in_path, pairs, out_path, opacity=opacity, width_pct=width_pct, workdir=workdir)
         with open(out_path, "rb") as fh:
-            docs.append({"src": base, "name": out_name, "data": fh.read(), "report": report})
+            data = fh.read()
+        docs.append({"src": base, "name": out_name, "out_path": out_path,
+                     "data": data, "report": report})
+
+    # Optionally convert each watermarked document to PDF and stamp a diagonal mark.
+    if to_pdf:
+        pdfdir = os.path.join(workdir, "pdf")
+        os.makedirs(pdfdir, exist_ok=True)
+        try:
+            mapping = _docx_to_pdf([d["out_path"] for d in docs], pdfdir)
+            for d in docs:
+                with open(mapping[d["out_path"]], "rb") as fh:
+                    pdf = fh.read()
+                if diagonal:
+                    pdf = _stamp_diagonal(pdf, diagonal, diagonal_opacity)
+                d["data"] = pdf
+                d["name"] = f"{os.path.splitext(d['name'])[0]}.pdf"
+        except Exception as exc:
+            abort(500, f"PDF export failed: {exc}")
 
     # Single document -> the classic per-chapter report page.
     if len(docs) == 1:
@@ -190,7 +262,7 @@ def process():
         token = uuid.uuid4().hex
         _remember(_OUTPUTS, token, ("bytes", d["data"], d["name"]))
         return render_template(
-            "result.html", report=d["report"], token=token,
+            "result.html", report=d["report"], token=token, download_name=d["name"],
             opacity_pct=round(opacity * 100), width_pct=round(width_pct * 100),
         )
 
