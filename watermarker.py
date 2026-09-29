@@ -159,12 +159,6 @@ def process(
         if not matches:
             report.chapters.append(ChapterResult(chapter=chapter, status="no_match"))
             continue
-        if len(matches) > 1:  # chosen semantics: ambiguity -> skip, surface it
-            report.chapters.append(
-                ChapterResult(chapter=chapter, status="ambiguous",
-                              candidates=[name for _, name in matches])
-            )
-            continue
 
         png_path, png_name = matches[0]
         if png_path in used_pngs:
