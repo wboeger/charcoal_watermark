@@ -29,7 +29,7 @@
     <a href="/manual" download>Manual</a>
   </nav>
   <h1>Chapter Watermarker</h1>
-  <p class="lead">Watermark the first page of each <code>Heading&nbsp;1</code> chapter with the PNG whose file name contains the chapter's name.</p>
+  <p class="lead">Insert a figure beside each <code>Heading&nbsp;1</code> chapter title (tight text wrap) using the image whose file name contains the chapter's name.</p>
 
   <form action="/process" method="post" enctype="multipart/form-data">
     <div>
@@ -44,21 +44,15 @@
     </div>
 
     <div>
-      <label for="watermarks">Watermark images (.png, .jpg, .tif, .pdf)
-        <span class="hint">&mdash; one or many; a chapter is matched when its name appears in the file name. PNG/PDF keep transparency; JPEG has none.</span>
+      <label for="watermarks">Figure images (.png, .jpg, .tif, .pdf)
+        <span class="hint">&mdash; one or many; matched when the chapter name appears in the file name. Use PNG/PDF with a transparent or white background.</span>
       </label>
       <input id="watermarks" name="watermarks" type="file" accept=".png,.jpg,.jpeg,.tif,.tiff,.pdf" multiple required>
     </div>
 
-    <div class="row">
-      <div>
-        <label for="opacity">Opacity <span class="hint">%</span></label>
-        <input id="opacity" name="opacity" type="number" min="1" max="100" value="50">
-      </div>
-      <div>
-        <label for="width_pct">Width <span class="hint">% of page</span></label>
-        <input id="width_pct" name="width_pct" type="number" min="1" max="100" value="25">
-      </div>
+    <div>
+      <label for="width_pct">Figure width <span class="hint">% of page</span></label>
+      <input id="width_pct" name="width_pct" type="number" min="5" max="90" value="30">
     </div>
 
     <fieldset style="border:1px solid rgba(127,127,127,.3);border-radius:8px;padding:.5rem 1rem 1rem;">

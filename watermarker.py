@@ -1,15 +1,16 @@
-"""Per-chapter DOCX watermarking.
+"""Per-chapter DOCX figure insertion.
 
-A "chapter" is a ``Heading 1`` paragraph; its name is the heading text. A
-watermark PNG is bound to a chapter when the PNG file name contains the chapter
-name (case-insensitive substring). The watermark is placed as a semi-transparent
-floating image pinned to the bottom-left corner of the chapter's first page,
-behind the text.
+A "chapter" is a ``Heading 1`` paragraph. A figure image is bound to a chapter
+when they share a significant word (token match), so numbered headings like
+"1 Chordata" still match "Chordata.png". The figure is inserted, fully opaque,
+floating to the right of the chapter title with tight text wrap, on the first
+page where that chapter name occurs.
 """
 
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from xml.sax.saxutils import escape
 
@@ -27,15 +28,23 @@ _DEFAULT_MARGIN = Inches(1)
 _ANCHOR_XML = (
     '<w:r {ns}>'
     '<w:drawing>'
-    '<wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0"'
-    ' relativeHeight="251658240" behindDoc="1" locked="0" layoutInCell="1"'
+    '<wp:anchor distT="0" distB="0" distL="114300" distR="114300" simplePos="0"'
+    ' relativeHeight="251658240" behindDoc="0" locked="0" layoutInCell="1"'
     ' allowOverlap="1">'
     '<wp:simplePos x="0" y="0"/>'
-    '<wp:positionH relativeFrom="page"><wp:posOffset>{hoff}</wp:posOffset></wp:positionH>'
-    '<wp:positionV relativeFrom="page"><wp:posOffset>{voff}</wp:posOffset></wp:positionV>'
+    '<wp:positionH relativeFrom="margin"><wp:align>right</wp:align></wp:positionH>'
+    '<wp:positionV relativeFrom="paragraph"><wp:posOffset>0</wp:posOffset></wp:positionV>'
     '<wp:extent cx="{cx}" cy="{cy}"/>'
     '<wp:effectExtent l="0" t="0" r="0" b="0"/>'
-    '<wp:wrapNone/>'
+    '<wp:wrapTight wrapText="left">'
+    '<wp:wrapPolygon edited="0">'
+    '<wp:start x="0" y="0"/>'
+    '<wp:lineTo x="0" y="21600"/>'
+    '<wp:lineTo x="21600" y="21600"/>'
+    '<wp:lineTo x="21600" y="0"/>'
+    '<wp:lineTo x="0" y="0"/>'
+    '</wp:wrapPolygon>'
+    '</wp:wrapTight>'
     '<wp:docPr id="{pid}" name="{name}"/>'
     '<wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr>'
     '<a:graphic>'
@@ -101,16 +110,34 @@ def _make_translucent(src: str, opacity: float, dst: str) -> tuple[int, int]:
         return im.width, im.height
 
 
-def _match_pngs(chapter: str, pngs: list[tuple[str, str]]) -> list[tuple[str, str]]:
-    """Return every (path, name) whose *original* file name contains ``chapter``.
+_WORD_RE = re.compile(r"[^\W\d_]{2,}", re.UNICODE)  # letter-only runs, length >= 2
+_STOP_WORDS = {"final", "fig", "figure", "img", "image", "vol", "volume", "the", "and"}
 
-    Matching is case-insensitive substring on the uploaded file name (never a
-    sanitized on-disk name), so accented/spaced chapter titles still match.
+
+def _tokens(text: str) -> set[str]:
+    """Significant lowercase word tokens (>= 4 letters, no digits/stopwords)."""
+    return {
+        w for w in _WORD_RE.findall((text or "").lower())
+        if len(w) >= 4 and w not in _STOP_WORDS
+    }
+
+
+def _match_pngs(chapter: str, pngs: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """Return every (path, name) sharing a significant word with ``chapter``.
+
+    Token overlap (not substring) so a numbered heading like "1 Chordata" matches
+    "Chordata.png", and "Coleoptera I" matches "coleoptera.png". Matching uses the
+    original file name (accents/spaces intact), extension stripped.
     """
-    needle = chapter.strip().lower()
-    if not needle:
+    wanted = _tokens(chapter)
+    if not wanted:
         return []
-    return [(path, name) for path, name in pngs if needle in name.lower()]
+    out = []
+    for path, name in pngs:
+        stem = os.path.splitext(name)[0]
+        if wanted & _tokens(stem):
+            out.append((path, name))
+    return out
 
 
 def _first_section_geometry(document):
@@ -146,9 +173,9 @@ def process(
 
     report = Report()
     used_pngs: set[str] = set()
-    # Cache of (src_png, opacity) -> preprocessed translucent PNG path so a
-    # watermark reused across chapters is embedded once (get_or_add_image dedupes).
-    processed: dict[str, tuple[str, int, int]] = {}
+    # Cache of png_path -> (pixel_w, pixel_h). The image is embedded once
+    # (get_or_add_image dedupes identical files).
+    processed: dict[str, tuple[int, int]] = {}
     pic_id = 1000
 
     for paragraph in document.paragraphs:
@@ -169,31 +196,24 @@ def process(
             )
             continue
         if png_path not in processed:
-            dst = os.path.join(workdir, f"_wm_{len(processed)}.png")
-            px_w, px_h = _make_translucent(png_path, opacity, dst)
-            processed[png_path] = (dst, px_w, px_h)
-        translucent_path, px_w, px_h = processed[png_path]
+            with PILImage.open(png_path) as im:
+                processed[png_path] = im.size
+        px_w, px_h = processed[png_path]
 
-        cx = int(page_w * width_pct)
+        cx = int(page_w * width_pct)              # ~30% of page width
         cy = int(cx * px_h / px_w)
-        if cy > usable_h:  # keep the image inside the page body
+        if cy > usable_h:                          # keep the figure within the body
             cy = usable_h
             cx = int(cy * px_w / px_h)
 
-        h_off = left_margin
-        v_off = max(0, page_h - bottom_margin - cy)
-
-        rid, _image = document.part.get_or_add_image(translucent_path)
+        # Embed the image at full opacity (no alpha scaling); a transparent PNG
+        # keeps its removed background, otherwise it shows on white.
+        rid, _image = document.part.get_or_add_image(png_path)
         pic_id += 1
         run_xml = _ANCHOR_XML.format(
             ns=nsdecls("w", "wp", "a", "pic", "r"),
-            hoff=h_off,
-            voff=v_off,
-            cx=cx,
-            cy=cy,
-            pid=pic_id,
-            name=escape(f"Watermark {chapter}"),
-            rid=rid,
+            cx=cx, cy=cy, pid=pic_id,
+            name=escape(f"Figure {chapter}"), rid=rid,
         )
         paragraph._p.append(parse_xml(run_xml))
 
