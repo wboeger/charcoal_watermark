@@ -138,24 +138,20 @@ def _rasterize_watermark(data: bytes, filename: str) -> bytes:
 _SOFFICE = shutil.which("soffice") or shutil.which("libreoffice")
 
 
-def _docx_to_pdf(paths: list[str], outdir: str) -> dict[str, str]:
-    """Convert .docx files to PDF via headless LibreOffice; return {docx_path: pdf_path}."""
+def _docx_to_pdf_one(path: str, outdir: str, profile: str, timeout: int = 300) -> str:
+    """Convert a single .docx to PDF via headless LibreOffice; return the PDF path."""
     if not _SOFFICE:
         raise RuntimeError("PDF export needs LibreOffice (soffice) installed on the server.")
-    profile = os.path.join(outdir, "_lo_profile")
     subprocess.run(
         [_SOFFICE, "--headless", "--norestore",
          f"-env:UserInstallation=file://{profile}",
-         "--convert-to", "pdf", "--outdir", outdir, *paths],
-        check=True, capture_output=True, timeout=300,
+         "--convert-to", "pdf", "--outdir", outdir, path],
+        check=True, capture_output=True, timeout=timeout,
     )
-    out = {}
-    for p in paths:
-        pdf = os.path.join(outdir, os.path.splitext(os.path.basename(p))[0] + ".pdf")
-        if not os.path.exists(pdf):
-            raise RuntimeError(f"PDF conversion failed for {os.path.basename(p)}")
-        out[p] = pdf
-    return out
+    pdf = os.path.join(outdir, os.path.splitext(os.path.basename(path))[0] + ".pdf")
+    if not os.path.exists(pdf):
+        raise RuntimeError("LibreOffice produced no PDF")
+    return pdf
 
 
 def _stamp_diagonal(pdf_bytes: bytes, text: str, opacity: float) -> bytes:
@@ -241,20 +237,24 @@ def process():
                      "data": data, "report": report})
 
     # Optionally convert each watermarked document to PDF and stamp a diagonal mark.
+    # Done per file so one slow/failed conversion can't lose the whole batch; a
+    # failed file simply keeps its .docx.
+    conv_errors: list[tuple[str, str]] = []
     if to_pdf:
         pdfdir = os.path.join(workdir, "pdf")
         os.makedirs(pdfdir, exist_ok=True)
-        try:
-            mapping = _docx_to_pdf([d["out_path"] for d in docs], pdfdir)
-            for d in docs:
-                with open(mapping[d["out_path"]], "rb") as fh:
+        profile = os.path.join(pdfdir, "_lo_profile")
+        for d in docs:
+            try:
+                pdf_path = _docx_to_pdf_one(d["out_path"], pdfdir, profile)
+                with open(pdf_path, "rb") as fh:
                     pdf = fh.read()
                 if diagonal:
                     pdf = _stamp_diagonal(pdf, diagonal, diagonal_opacity)
                 d["data"] = pdf
                 d["name"] = f"{os.path.splitext(d['name'])[0]}.pdf"
-        except Exception as exc:
-            abort(500, f"PDF export failed: {exc}")
+            except Exception as exc:
+                conv_errors.append((d["src"], str(exc)))  # keep the .docx instead
 
     # Single document -> the classic per-chapter report page.
     if len(docs) == 1:
@@ -264,6 +264,7 @@ def process():
         return render_template(
             "result.html", report=d["report"], token=token, download_name=d["name"],
             opacity_pct=round(opacity * 100), width_pct=round(width_pct * 100),
+            pdf_error=(conv_errors[0][1] if conv_errors else None),
         )
 
     # Multiple documents -> collect all into a "watermarked" folder / zip.
@@ -297,6 +298,7 @@ def process():
         total_watermarked=sum(d["report"].watermarked for d in docs),
         opacity_pct=round(opacity * 100), width_pct=round(width_pct * 100),
         saved_dir=saved_dir, base=(str(LOCAL_SAVE_DIR) if LOCAL_SAVE_DIR else None),
+        conv_errors=conv_errors,
     )
 
 

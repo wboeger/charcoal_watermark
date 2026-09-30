@@ -26,6 +26,9 @@
   </p>
 
   <a class="dl" href="/download/{{ token }}">Download {{ download_name or "watermarked .docx" }}</a>
+  {% if pdf_error %}
+  <p class="skip">PDF export failed ({{ pdf_error }}); the .docx was kept instead.</p>
+  {% endif %}
 
   <table>
     <thead><tr><th>Chapter (Heading 1)</th><th>Status</th><th>Watermark</th></tr></thead>

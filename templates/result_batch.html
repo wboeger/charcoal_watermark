@@ -51,6 +51,13 @@
     </tbody>
   </table>
 
+  {% if conv_errors %}
+  <p class="muted" style="color:#b45309">
+    {{ conv_errors|length }} file(s) could not be converted to PDF and were kept as .docx:
+    {{ conv_errors | map(attribute=0) | join(", ") }}
+  </p>
+  {% endif %}
+
   <p class="muted">The .zip extracts to a <code>watermarked/</code> folder with every document.</p>
   <p><a class="back" href="/">&larr; Watermark more documents</a></p>
 </body>
