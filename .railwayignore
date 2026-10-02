@@ -1,0 +1,6 @@
+# Keep the Railway build lean (lower memory/cost).
+venv/
+__pycache__/
+*.pyc
+images/
+local.env
