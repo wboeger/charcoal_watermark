@@ -262,9 +262,6 @@ def download(token: str):
 
 @app.get("/manual")
 def manual():
-    pdf = Path(__file__).with_name("MANUAL.pdf")
-    if pdf.exists():
-        return send_file(pdf, mimetype="application/pdf", download_name="MANUAL.pdf")
     md = Path(__file__).with_name("MANUAL.md")
     if md.exists():
         return send_file(md, as_attachment=True, download_name="MANUAL.md",

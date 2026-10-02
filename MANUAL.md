@@ -164,14 +164,7 @@ sempre `.docx`.
 ```
 app.py                 # rotas Flask (inserção de figura + marca d'água + lote)
 watermarker.py         # lógica por capítulo (.docx): matching, posição, wrap, marca
-build_manual.py        # gera MANUAL.pdf a partir deste MANUAL.md (usa LibreOffice)
 run.command / run.sh / run.bat   # lançadores locais
 templates/             # index.html, result.html, result_batch.html
 requirements.txt
-```
-
-### Reconstruir este manual em PDF
-
-```bash
-venv/bin/python build_manual.py   # requer LibreOffice só para este passo
 ```
