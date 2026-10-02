@@ -623,7 +623,29 @@ def manual():
     )
 
 
+def _find_free_port(start: int, host: str = "127.0.0.1", tries: int = 50) -> int:
+    """Return the first free TCP port at or after ``start`` (handles macOS :5000)."""
+    import socket
+    for candidate in range(start, start + tries):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            try:
+                sock.bind((host, candidate))
+                return candidate
+            except OSError:
+                continue
+    return start
+
+
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", "5000"))
     debug = os.environ.get("FLASK_DEBUG", "").lower() in ("1", "true", "on")
+    port = _find_free_port(int(os.environ.get("PORT", "5000")))
+    url = f"http://127.0.0.1:{port}"
+    mode = f"saving to {LOCAL_SAVE_DIR}" if LOCAL_SAVE_DIR else "download mode"
+    print(f" * Chapter Watermarker -> {url}  ({mode})")
+    # Open the browser once the server is up (skip in debug to avoid the reloader
+    # opening it twice; set NO_BROWSER=1 to disable).
+    if not debug and os.environ.get("NO_BROWSER", "").lower() not in ("1", "true", "on"):
+        import threading
+        import webbrowser
+        threading.Timer(1.2, lambda: webbrowser.open(url)).start()
     app.run(host="0.0.0.0", port=port, debug=debug)

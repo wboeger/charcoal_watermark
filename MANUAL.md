@@ -43,9 +43,32 @@ Observações:
 
 ## 3. Como executar
 
+### Modo fácil (instalação local — recomendado)
+
+Não precisa configurar nada manualmente. O lançador cria o ambiente, instala as
+dependências, define a pasta de saída local e abre o navegador:
+
+- **macOS:** dê **duplo-clique em `run.command`** (ou, no terminal, `bash run.sh`).
+- **Linux:** `bash run.sh`
+- **Windows:** **duplo-clique em `run.bat`**
+
+A porta é escolhida automaticamente (contorna o conflito da porta 5000 com o
+AirPlay no macOS) e os resultados são salvos em `~/Downloads` (carvão em
+`~/Downloads/charcoal`, watermark em `~/Downloads/watermarked`).
+
+Para guardar a sua chave do Gemini e/ou mudar a pasta de saída, crie um arquivo
+**`local.env`** ao lado do lançador (não é versionado):
+
+```
+GEMINI_API_KEY=sua-chave-aqui
+LOCAL_SAVE_DIR=/caminho/para/saida
+```
+
+### Modo manual
+
 ```bash
-# Exemplo: porta 5001, com chave do Gemini
-PORT=5001 GEMINI_API_KEY="sua-chave" venv/bin/python app.py
+# A porta é auto-selecionada; defina PORT para forçar uma.
+GEMINI_API_KEY="sua-chave" LOCAL_SAVE_DIR="$HOME/Downloads" venv/bin/python app.py
 ```
 
 Acesse no navegador:
