@@ -97,19 +97,6 @@ def _is_heading1(paragraph) -> bool:
     return name == "heading 1" or style_id == "heading1"
 
 
-def _make_translucent(src: str, opacity: float, dst: str) -> tuple[int, int]:
-    """Write a copy of ``src`` with its alpha scaled by ``opacity`` to ``dst``.
-
-    Returns the pixel (width, height) of the image.
-    """
-    with PILImage.open(src) as im:
-        im = im.convert("RGBA")
-        alpha = im.getchannel("A").point(lambda v: int(v * opacity))
-        im.putalpha(alpha)
-        im.save(dst, format="PNG")
-        return im.width, im.height
-
-
 _WORD_RE = re.compile(r"[^\W\d_]{2,}", re.UNICODE)  # letter-only runs, length >= 2
 _STOP_WORDS = {"final", "fig", "figure", "img", "image", "vol", "volume", "the", "and"}
 
@@ -154,16 +141,14 @@ def process(
     docx_path: str,
     pngs: list[tuple[str, str]],
     output_path: str,
-    opacity: float = 0.5,
-    width_pct: float = 0.25,
+    width_pct: float = 0.30,
     workdir: str | None = None,
 ) -> Report:
     """Watermark matched chapters of ``docx_path`` and save to ``output_path``.
 
     ``pngs`` is a list of ``(disk_path, original_name)``; matching uses the
-    original name. ``opacity`` and ``width_pct`` are fractions in (0, 1].
+    original name. ``width_pct`` is a fraction in (0, 1].
     """
-    opacity = max(0.0, min(1.0, opacity))
     width_pct = max(0.01, min(1.0, width_pct))
     workdir = workdir or os.path.dirname(output_path) or "."
 
