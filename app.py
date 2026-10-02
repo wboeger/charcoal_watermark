@@ -135,7 +135,26 @@ def _rasterize_watermark(data: bytes, filename: str) -> bytes:
         return buf.getvalue()
 
 
-_SOFFICE = shutil.which("soffice") or shutil.which("libreoffice")
+def _resolve_soffice() -> str | None:
+    """Find LibreOffice across platforms, incl. default install paths not on PATH."""
+    found = shutil.which("soffice") or shutil.which("libreoffice")
+    if found:
+        return found
+    import sys
+    if sys.platform == "darwin":
+        candidates = ["/Applications/LibreOffice.app/Contents/MacOS/soffice"]
+    elif os.name == "nt":
+        candidates = [
+            r"C:\Program Files\LibreOffice\program\soffice.exe",
+            r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+        ]
+    else:
+        candidates = ["/usr/bin/soffice", "/usr/local/bin/soffice",
+                      "/opt/libreoffice/program/soffice"]
+    return next((c for c in candidates if os.path.exists(c)), None)
+
+
+_SOFFICE = _resolve_soffice()
 
 
 def _docx_to_pdf_one(path: str, outdir: str, profile: str, timeout: int = 300) -> str:
