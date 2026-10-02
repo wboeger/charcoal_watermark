@@ -2,8 +2,8 @@
 
 Upload one or more ``.docx`` files (or a whole folder) plus figure images. Each
 ``Heading 1`` chapter gets the image whose file name shares its name inserted
-beside the title (tight wrap, opaque). Optionally export each document to PDF and
-stamp a diagonal, semi-transparent text watermark on every page.
+beside the title (tight wrap, opaque). Optionally add a diagonal, semi-transparent
+text watermark on every page. Output is always ``.docx``.
 """
 
 from __future__ import annotations
@@ -58,11 +58,12 @@ def _too_large(_):
 _OUTPUTS: dict[str, tuple[str, object, str]] = {}
 _STORE_CAP = 64
 
-# LOCAL_SAVE_DIR set   -> "local" mode: batch results are also written to disk
-#                         under <dir>/watermarked on this machine.
+# LOCAL_SAVE_DIR set   -> "local" mode: results are also written to disk under
+#                         <dir>/processadas on this machine.
 # LOCAL_SAVE_DIR unset -> "download" mode (default, e.g. Railway).
 _local_dir = os.environ.get("LOCAL_SAVE_DIR")
 LOCAL_SAVE_DIR = Path(_local_dir).resolve() if _local_dir else None
+_OUTPUT_FOLDER = "processadas"
 
 
 def _remember(store: dict, token: str, value) -> None:
@@ -194,14 +195,25 @@ def process():
     # Single document -> the per-chapter report page.
     if len(docs) == 1:
         d = docs[0]
+        saved_dir = None
+        if LOCAL_SAVE_DIR is not None:
+            dest_dir = LOCAL_SAVE_DIR / _OUTPUT_FOLDER
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            saved_path = _unique_path(dest_dir, d["name"])
+            saved_path.write_bytes(d["data"])
+            d["name"] = saved_path.name
+            saved_dir = str(dest_dir)
         token = uuid.uuid4().hex
-        _remember(_OUTPUTS, token, ("bytes", d["data"], d["name"]))
+        if saved_dir:
+            _remember(_OUTPUTS, token, ("path", str(Path(saved_dir) / d["name"]), d["name"]))
+        else:
+            _remember(_OUTPUTS, token, ("bytes", d["data"], d["name"]))
         return render_template(
             "result.html", report=d["report"], token=token, download_name=d["name"],
-            width_pct=round(width_pct * 100),
+            width_pct=round(width_pct * 100), saved_dir=saved_dir,
         )
 
-    # Multiple documents -> collect all into a "watermarked" folder / zip.
+    # Multiple documents -> collect all into a "processadas" folder / zip.
     used: set[str] = set()
     for d in docs:
         d["name"] = _unique_name(d["name"], used)
@@ -210,12 +222,12 @@ def process():
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for d in docs:
-            zf.writestr(f"watermarked/{d['name']}", d["data"])
-    _remember(_OUTPUTS, token, ("bytes", buf.getvalue(), "watermarked.zip"))
+            zf.writestr(f"{_OUTPUT_FOLDER}/{d['name']}", d["data"])
+    _remember(_OUTPUTS, token, ("bytes", buf.getvalue(), f"{_OUTPUT_FOLDER}.zip"))
 
     saved_dir = None
     if LOCAL_SAVE_DIR is not None:
-        dest_dir = LOCAL_SAVE_DIR / "watermarked"
+        dest_dir = LOCAL_SAVE_DIR / _OUTPUT_FOLDER
         dest_dir.mkdir(parents=True, exist_ok=True)
         for d in docs:
             _unique_path(dest_dir, d["name"]).write_bytes(d["data"])
@@ -279,8 +291,6 @@ if __name__ == "__main__":
     url = f"http://127.0.0.1:{port}"
     mode = f"saving to {LOCAL_SAVE_DIR}" if LOCAL_SAVE_DIR else "download mode"
     print(f" * Chapter Watermarker -> {url}  ({mode})")
-    # Open the browser once the server is up (skip in debug to avoid the reloader
-    # opening it twice; set NO_BROWSER=1 to disable).
     if not debug and os.environ.get("NO_BROWSER", "").lower() not in ("1", "true", "on"):
         import threading
         import webbrowser

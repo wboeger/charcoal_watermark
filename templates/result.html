@@ -21,9 +21,10 @@
 <body>
   <h1>Watermark report</h1>
   <p class="summary">
-    {{ report.watermarked }} of {{ report.total_chapters }} chapter(s) watermarked
-    at {{ opacity_pct }}% opacity, {{ width_pct }}% width.
+    {{ report.watermarked }} of {{ report.total_chapters }} chapter(s) got a figure
+    at {{ width_pct }}% width.
   </p>
+  {% if saved_dir %}<p class="summary">Saved to <code>{{ saved_dir }}</code>.</p>{% endif %}
 
   <a class="dl" href="/download/{{ token }}">Download {{ download_name or "watermarked .docx" }}</a>
 

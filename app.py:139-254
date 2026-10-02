@@ -1,0 +1,109 @@
+@app.post("/process")
+def process():
+    docx_files = [
+        f for f in request.files.getlist("docx")
+        if f and f.filename and f.filename.lower().endswith(".docx")
+    ]
+    if not docx_files:
+        abort(400, "Please upload at least one .docx file (or a folder of them).")
+
+    accepted = (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".pdf")
+    marks = [
+        f for f in request.files.getlist("watermarks")
+        if f and f.filename and f.filename.lower().endswith(accepted)
+    ]
+    if not marks:
+        abort(400, "Please upload at least one figure (.png, .jpg, .tif or .pdf).")
+
+    width_pct = _pct(request.form.get("width_pct"), 30)
+    watermark_text = (request.form.get("diagonal_text") or "").strip()
+    watermark_opacity = _pct(request.form.get("diagonal_opacity"), 25)
+
+    workdir = tempfile.mkdtemp(prefix="wm_")
+
+    # Rasterize the figure set once; it is shared across every document.
+    pairs: list[tuple[str, str]] = []
+    for i, mark in enumerate(marks):
+        original = os.path.basename(mark.filename.replace("\\", "/"))
+        try:
+            png = _rasterize_watermark(mark.read(), original)
+        except Exception:
+            continue
+        stem = secure_filename(os.path.splitext(original)[0]) or f"figure_{i}"
+        path = os.path.join(workdir, f"wm_{i}_{stem}.png")
+        with open(path, "wb") as fh:
+            fh.write(png)
+        pairs.append((path, original))
+    if not pairs:
+        abort(400, "None of the uploaded figures could be read.")
+
+    # Insert the figure beside the matching heading in each document.
+    docs = []
+    for j, up in enumerate(docx_files):
+        base = os.path.basename(up.filename.replace("\\", "/"))
+        docx_name = secure_filename(base) or f"document_{j}.docx"
+        in_path = os.path.join(workdir, f"in_{j}_{docx_name}")
+        up.save(in_path)
+        out_name = f"{os.path.splitext(docx_name)[0]}_watermarked.docx"
+        out_path = os.path.join(workdir, f"out_{j}_{out_name}")
+        report = wm.process(in_path, pairs, out_path, width_pct=width_pct,
+                            workdir=workdir, watermark_text=watermark_text,
+                            watermark_opacity=watermark_opacity)
+        with open(out_path, "rb") as fh:
+            data = fh.read()
+        docs.append({"src": base, "name": out_name, "out_path": out_path,
+                     "data": data, "report": report})
+
+    # Single document -> the per-chapter report page.
+    if len(docs) == 1:
+        d = docs[0]
+        saved_dir = None
+        if LOCAL_SAVE_DIR is not None:
+            dest_dir = LOCAL_SAVE_DIR / _OUTPUT_FOLDER
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            saved_path = _unique_path(dest_dir, d["name"])
+            saved_path.write_bytes(d["data"])
+            d["name"] = saved_path.name
+            saved_dir = str(dest_dir)
+        token = uuid.uuid4().hex
+        if saved_dir:
+            _remember(_OUTPUTS, token, ("path", str(Path(saved_dir) / d["name"]), d["name"]))
+        else:
+            _remember(_OUTPUTS, token, ("bytes", d["data"], d["name"]))
+        return render_template(
+            "result.html", report=d["report"], token=token, download_name=d["name"],
+            width_pct=round(width_pct * 100), saved_dir=saved_dir,
+        )
+
+    # Multiple documents -> collect all into a "processadas" folder / zip.
+    used: set[str] = set()
+    for d in docs:
+        d["name"] = _unique_name(d["name"], used)
+
+    token = uuid.uuid4().hex
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for d in docs:
+            zf.writestr(f"{_OUTPUT_FOLDER}/{d['name']}", d["data"])
+    _remember(_OUTPUTS, token, ("bytes", buf.getvalue(), f"{_OUTPUT_FOLDER}.zip"))
+
+    saved_dir = None
+    if LOCAL_SAVE_DIR is not None:
+        dest_dir = LOCAL_SAVE_DIR / _OUTPUT_FOLDER
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        for d in docs:
+            _unique_path(dest_dir, d["name"]).write_bytes(d["data"])
+        saved_dir = str(dest_dir)
+
+    files = [
+        {"src": d["src"], "name": d["name"],
+         "watermarked": d["report"].watermarked, "total": d["report"].total_chapters}
+        for d in docs
+    ]
+    return render_template(
+        "result_batch.html",
+        token=token, files=files, count=len(docs),
+        total_watermarked=sum(d["report"].watermarked for d in docs),
+        width_pct=round(width_pct * 100),
+        saved_dir=saved_dir, base=(str(LOCAL_SAVE_DIR) if LOCAL_SAVE_DIR else None),
+    )
