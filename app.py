@@ -634,12 +634,14 @@ def charcoal_key():
 
 @app.get("/manual")
 def manual():
-    path = Path(__file__).with_name("MANUAL.md")
-    if not path.exists():
-        abort(404, "Manual not found.")
-    return send_file(
-        path, as_attachment=True, download_name="MANUAL.md", mimetype="text/markdown"
-    )
+    pdf = Path(__file__).with_name("MANUAL.pdf")
+    if pdf.exists():
+        return send_file(pdf, mimetype="application/pdf", download_name="MANUAL.pdf")
+    md = Path(__file__).with_name("MANUAL.md")
+    if md.exists():
+        return send_file(md, as_attachment=True, download_name="MANUAL.md",
+                         mimetype="text/markdown")
+    abort(404, "Manual not found.")
 
 
 def _find_free_port(start: int, host: str = "127.0.0.1", tries: int = 50) -> int:
