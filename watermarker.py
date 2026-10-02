@@ -137,17 +137,69 @@ def _first_section_geometry(document):
     return int(page_w), int(page_h), int(left), int(bottom), int(top)
 
 
+# A Word (VML) diagonal text watermark placed in a header so it repeats on every
+# page, behind the text, semi-transparent — the native "washout" watermark.
+_WATERMARK_PICT = (
+    '<w:p {ns}><w:r><w:rPr><w:noProof/></w:rPr><w:pict>'
+    '<v:shapetype id="_x0000_t136" coordsize="21600,21600" o:spt="136" adj="10800"'
+    ' path="m@7,l@8,m@5,21600l@6,21600e">'
+    '<v:formulas>'
+    '<v:f eqn="sum #0 0 10800"/><v:f eqn="prod #0 2 1"/><v:f eqn="sum 21600 0 @1"/>'
+    '<v:f eqn="sum 0 0 @2"/><v:f eqn="sum 21600 0 @3"/><v:f eqn="if @0 @3 0"/>'
+    '<v:f eqn="if @0 21600 @1"/><v:f eqn="if @0 0 @2"/><v:f eqn="if @0 @4 21600"/>'
+    '<v:f eqn="mid @5 @6"/><v:f eqn="mid @8 @5"/><v:f eqn="mid @7 @8"/>'
+    '<v:f eqn="mid @6 @7"/><v:f eqn="sum @6 0 @5"/>'
+    '</v:formulas>'
+    '<v:path textpathok="t" o:connecttype="custom"'
+    ' o:connectlocs="@9,0;@10,10800;@11,21600;@12,10800" o:connectangles="270,180,90,0"/>'
+    '<v:textpath on="t" fitshape="t"/>'
+    '</v:shapetype>'
+    '<v:shape id="PowerPlusWaterMarkObject" type="#_x0000_t136"'
+    ' style="position:absolute;margin-left:0;margin-top:0;width:468pt;height:234pt;'
+    'rotation:315;z-index:-251658240;mso-position-horizontal:center;'
+    'mso-position-horizontal-relative:margin;mso-position-vertical:center;'
+    'mso-position-vertical-relative:margin" fillcolor="silver" stroked="f">'
+    '<v:fill opacity="{opacity}"/>'
+    '<v:textpath style="font-family:&quot;Calibri&quot;;font-size:1pt" string="{text}"/>'
+    '</v:shape>'
+    '</w:pict></w:r></w:p>'
+)
+
+
+_WATERMARK_NS = (
+    'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
+    'xmlns:v="urn:schemas-microsoft-com:vml" '
+    'xmlns:o="urn:schemas-microsoft-com:office:office"'
+)
+
+
+def _add_text_watermark(document, text: str, opacity: float) -> None:
+    """Add a diagonal, semi-transparent text watermark to every page (all sections)."""
+    xml = _WATERMARK_PICT.format(
+        ns=_WATERMARK_NS,
+        opacity=f"{max(0.0, min(1.0, opacity)):.2f}",
+        text=escape(text),
+    )
+    for section in document.sections:
+        header = section.header
+        header.is_linked_to_previous = False
+        header._element.append(parse_xml(xml))
+
+
 def process(
     docx_path: str,
     pngs: list[tuple[str, str]],
     output_path: str,
     width_pct: float = 0.30,
     workdir: str | None = None,
+    watermark_text: str = "",
+    watermark_opacity: float = 0.25,
 ) -> Report:
-    """Watermark matched chapters of ``docx_path`` and save to ``output_path``.
+    """Insert matched figures beside chapter headings and save to ``output_path``.
 
     ``pngs`` is a list of ``(disk_path, original_name)``; matching uses the
-    original name. ``width_pct`` is a fraction in (0, 1].
+    original name. ``width_pct`` is a fraction in (0, 1]. If ``watermark_text`` is
+    given, a diagonal semi-transparent text watermark is added to every page.
     """
     width_pct = max(0.01, min(1.0, width_pct))
     workdir = workdir or os.path.dirname(output_path) or "."
@@ -207,5 +259,7 @@ def process(
         report.watermarked += 1
 
     report.unused_pngs = [name for path, name in pngs if path not in used_pngs]
+    if watermark_text.strip():
+        _add_text_watermark(document, watermark_text.strip(), watermark_opacity)
     document.save(output_path)
     return report

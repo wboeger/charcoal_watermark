@@ -29,14 +29,9 @@ echo "Installing/updating dependencies..."
 venv/bin/python -m pip install --quiet --upgrade pip
 venv/bin/python -m pip install --quiet -r requirements.txt
 
-# Save results on this machine by default (under ~/Downloads): the charcoal tool
-# writes to <dir>/charcoal and the watermarker writes to <dir>/watermarked.
+# Save results on this machine by default (under ~/Downloads): the batch writes
+# to <dir>/watermarked.
 export LOCAL_SAVE_DIR="${LOCAL_SAVE_DIR:-$HOME/Downloads}"
-
-# Heads-up about the optional PDF-export dependency.
-if ! command -v soffice >/dev/null 2>&1 && ! command -v libreoffice >/dev/null 2>&1; then
-  echo "NOTE: LibreOffice not found - DOCX->PDF export will be unavailable (everything else works)."
-fi
 
 echo "Starting Chapter Watermarker (a browser tab will open)..."
 exec venv/bin/python app.py

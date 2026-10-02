@@ -1,9 +1,9 @@
 # Manual do Chapter Watermarker
 
 Aplicativo web (Flask) para **inserir uma figura ao lado do título de cada
-capítulo** de documentos `.docx`, com opção de **exportar para PDF** e aplicar
-uma **marca d'água diagonal** em todas as páginas. Processa **um arquivo, vários
-ou uma pasta inteira** de uma vez.
+capítulo** de documentos `.docx` e, opcionalmente, aplicar uma **marca d'água
+diagonal de texto** em todas as páginas — tudo **gravado no próprio `.docx`**.
+Processa **um arquivo, vários ou uma pasta inteira** de uma vez.
 
 ---
 
@@ -11,10 +11,8 @@ ou uma pasta inteira** de uma vez.
 
 - **Python 3.11+**
 - Dependências (`requirements.txt`): `Flask`, `python-docx`, `Pillow`,
-  `pymupdf`, `markdown`.
-- **LibreOffice** (opcional) — necessário apenas para **exportar PDF** e para a
-  marca d'água diagonal. Sem ele, a inserção de figuras no `.docx` funciona
-  normalmente.
+  `pymupdf` (apenas para aceitar figuras em PDF), `markdown`, `gunicorn`.
+- **Não precisa de LibreOffice.** O app gera somente `.docx`.
 
 ---
 
@@ -74,23 +72,22 @@ Páginas:
 
 O app percorre os parágrafos com estilo **`Heading 1`** (Título 1). Para cada
 capítulo, procura uma imagem cujo nome **compartilhe uma palavra** com o título
-(correspondência por palavra, não por substring), inserindo-a ao lado do título.
+(correspondência por palavra, não por substring) e a insere ao lado do título.
 
 ### Correspondência por palavra (token)
 
-- O casamento ignora números, prefixos e sufixos: basta compartilhar uma palavra
+- Ignora números, prefixos e sufixos: basta compartilhar uma palavra
   significativa (≥ 4 letras).
   - `1 Chordata` ↔ `Chordata.png` ✓
   - `Coleoptera I` ↔ `coleoptera.png` ✓
   - `Bryozoa` ↔ `Bryozoa2.jpeg` ✓
-- Se **mais de uma** imagem casar com o capítulo, uma delas é escolhida (a
-  primeira enviada).
+- Se **mais de uma** imagem casar, usa a primeira enviada.
 - A figura é inserida **apenas na primeira página em que o nome ocorre**;
   ocorrências posteriores são relatadas como já colocadas.
 
 ### Layout da figura
 
-- Posicionada **à direita** do número e nome do capítulo.
+- **À direita** do número e nome do capítulo.
 - **~30% da largura da página** (ajustável no formulário).
 - **Quebra de texto "tight"** (o texto flui ao lado da figura).
 - **Opaca (0% de transparência).**
@@ -113,18 +110,18 @@ primeira página, preservando transparência de logos vetoriais).
 
 ---
 
-## 5. Exportar PDF e marca d'água diagonal
+## 5. Marca d'água diagonal (no `.docx`)
 
-No formulário:
+No formulário, em **"Diagonal watermark"**:
 
-- **Convert watermarked files to PDF** — converte cada documento para PDF via
-  LibreOffice (preserva as figuras inseridas).
-- **Diagonal text watermark** — texto (ex.: `CONFIDENTIAL`, `DRAFT`) desenhado
-  **na diagonal, em todas as páginas**. Informar um texto **força** a saída PDF.
-- **Diagonal opacity %** — opacidade da marca diagonal (25 = 75% transparente).
+- **Watermark text** — texto (ex.: `CONFIDENTIAL`, `DRAFT`). Deixe em branco para
+  nenhuma marca.
+- **Watermark opacity %** — opacidade (25 = 75% transparente).
 
-A conversão é feita **por arquivo**: se um documento falhar/estourar o tempo, os
-demais são preservados e o que falhou mantém o `.docx` (relatado na página).
+Quando preenchido, uma marca d'água de texto **diagonal, cinza e semitransparente
+é adicionada ao cabeçalho do `.docx`**, aparecendo **atrás do texto em todas as
+páginas** (é a marca d'água nativa do Word; continua editável no Word). A saída é
+sempre `.docx`.
 
 ---
 
@@ -132,7 +129,7 @@ demais são preservados e o que falhou mantém o `.docx` (relatado na página).
 
 - Selecione **vários `.docx`** ou **uma pasta inteira** (opção "choose a whole
   folder"). Cada documento é processado separadamente.
-- **1 documento** → página de relatório por capítulo + download do arquivo.
+- **1 documento** → página de relatório por capítulo + download do `.docx`.
 - **Vários documentos** → página-resumo + **`watermarked.zip`** (extrai para uma
   pasta `watermarked/`). Em **modo local**, também grava em
   `<LOCAL_SAVE_DIR>/watermarked/`.
@@ -145,8 +142,8 @@ demais são preservados e o que falhou mantém o `.docx` (relatado na página).
 |---|---|---|
 | GET | `/` | Página principal. |
 | GET | `/health` | Retorna `ok`. |
-| POST | `/process` | Processa. Campos: `docx` (múltiplos/pasta), `watermarks` (múltiplos), `width_pct`, `to_pdf`, `diagonal_text`, `diagonal_opacity`. |
-| GET | `/download/<token>` | Baixa o resultado (docx, pdf ou zip). |
+| POST | `/process` | Processa. Campos: `docx` (múltiplos/pasta), `watermarks` (múltiplos), `width_pct`, `diagonal_text`, `diagonal_opacity`. |
+| GET | `/download/<token>` | Baixa o resultado (`.docx` ou `.zip`). |
 | GET | `/manual` | Este manual (PDF). |
 
 ---
@@ -157,7 +154,7 @@ demais são preservados e o que falhou mantém o `.docx` (relatado na página).
 |---|---|
 | `Port 5000 is in use` (macOS) | AirPlay Receiver. A porta é auto-selecionada; veja a URL impressa no terminal. |
 | Figura não aparece num capítulo | Título não está em `Heading 1`, ou nenhuma palavra do título coincide com o nome do arquivo. |
-| "PDF export failed" | LibreOffice ausente ou documento muito grande; o `.docx` é mantido. Instale o LibreOffice. |
+| Marca d'água não aparece | Informe um texto em "Watermark text"; ela fica no cabeçalho/atrás do texto. |
 | Upload muito grande | Aumente `MAX_UPLOAD_MB`. |
 
 ---
@@ -165,9 +162,9 @@ demais são preservados e o que falhou mantém o `.docx` (relatado na página).
 ## 9. Estrutura do projeto
 
 ```
-app.py                 # rotas Flask (inserção de figura + PDF + diagonal + lote)
-watermarker.py         # lógica por capítulo (.docx): matching, posição, wrap
-build_manual.py        # gera MANUAL.pdf a partir deste MANUAL.md
+app.py                 # rotas Flask (inserção de figura + marca d'água + lote)
+watermarker.py         # lógica por capítulo (.docx): matching, posição, wrap, marca
+build_manual.py        # gera MANUAL.pdf a partir deste MANUAL.md (usa LibreOffice)
 run.command / run.sh / run.bat   # lançadores locais
 templates/             # index.html, result.html, result_batch.html
 requirements.txt
@@ -176,5 +173,5 @@ requirements.txt
 ### Reconstruir este manual em PDF
 
 ```bash
-venv/bin/python build_manual.py
+venv/bin/python build_manual.py   # requer LibreOffice só para este passo
 ```

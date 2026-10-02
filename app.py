@@ -10,8 +10,6 @@ from __future__ import annotations
 
 import io
 import os
-import shutil
-import subprocess
 import tempfile
 import uuid
 import zipfile
@@ -34,7 +32,7 @@ from PIL import Image
 Image.MAX_IMAGE_PIXELS = None
 
 try:
-    import pymupdf  # PDF rasterization (figure inputs) + diagonal watermark
+    import pymupdf  # rasterizes PDF figure inputs
 except Exception:
     pymupdf = None
 
@@ -137,68 +135,6 @@ def _rasterize_watermark(data: bytes, filename: str) -> bytes:
         return buf.getvalue()
 
 
-def _resolve_soffice() -> str | None:
-    """Find LibreOffice across platforms, incl. default install paths not on PATH."""
-    found = shutil.which("soffice") or shutil.which("libreoffice")
-    if found:
-        return found
-    import sys
-    if sys.platform == "darwin":
-        candidates = ["/Applications/LibreOffice.app/Contents/MacOS/soffice"]
-    elif os.name == "nt":
-        candidates = [
-            r"C:\Program Files\LibreOffice\program\soffice.exe",
-            r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
-        ]
-    else:
-        candidates = ["/usr/bin/soffice", "/usr/local/bin/soffice",
-                      "/opt/libreoffice/program/soffice"]
-    return next((c for c in candidates if os.path.exists(c)), None)
-
-
-_SOFFICE = _resolve_soffice()
-
-
-def _docx_to_pdf_one(path: str, outdir: str, profile: str, timeout: int = 300) -> str:
-    """Convert a single .docx to PDF via headless LibreOffice; return the PDF path."""
-    if not _SOFFICE:
-        raise RuntimeError("PDF export needs LibreOffice (soffice) installed on the server.")
-    subprocess.run(
-        [_SOFFICE, "--headless", "--norestore",
-         f"-env:UserInstallation=file://{profile}",
-         "--convert-to", "pdf", "--outdir", outdir, path],
-        check=True, capture_output=True, timeout=timeout,
-    )
-    pdf = os.path.join(outdir, os.path.splitext(os.path.basename(path))[0] + ".pdf")
-    if not os.path.exists(pdf):
-        raise RuntimeError("LibreOffice produced no PDF")
-    return pdf
-
-
-def _stamp_diagonal(pdf_bytes: bytes, text: str, opacity: float) -> bytes:
-    """Overlay a single diagonal, semi-transparent grey text watermark on every page."""
-    if pymupdf is None:
-        raise RuntimeError("Diagonal watermark needs pymupdf installed.")
-    doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
-    try:
-        for page in doc:
-            r = page.rect
-            diag = (r.width ** 2 + r.height ** 2) ** 0.5
-            unit = pymupdf.get_text_length(text, fontname="helv", fontsize=1) or 1.0
-            fontsize = max(12.0, min(400.0, diag * 0.8 / unit))
-            width = pymupdf.get_text_length(text, fontname="helv", fontsize=fontsize)
-            pivot = pymupdf.Point(r.width / 2, r.height / 2)
-            origin = pymupdf.Point(pivot.x - width / 2, pivot.y + fontsize * 0.35)
-            page.insert_text(
-                origin, text, fontname="helv", fontsize=fontsize,
-                color=(0.5, 0.5, 0.5), fill_opacity=opacity,
-                morph=(pivot, pymupdf.Matrix(1, 0, 0, 1, 0, 0).prerotate(45)),
-            )
-        return doc.tobytes()
-    finally:
-        doc.close()
-
-
 @app.post("/process")
 def process():
     docx_files = [
@@ -217,11 +153,8 @@ def process():
         abort(400, "Please upload at least one figure (.png, .jpg, .tif or .pdf).")
 
     width_pct = _pct(request.form.get("width_pct"), 30)
-    to_pdf = str(request.form.get("to_pdf", "")).lower() in ("1", "true", "on", "yes")
-    diagonal = (request.form.get("diagonal_text") or "").strip()
-    diagonal_opacity = _pct(request.form.get("diagonal_opacity"), 25)
-    if diagonal:
-        to_pdf = True  # the diagonal mark is stamped onto the PDF output
+    watermark_text = (request.form.get("diagonal_text") or "").strip()
+    watermark_opacity = _pct(request.form.get("diagonal_opacity"), 25)
 
     workdir = tempfile.mkdtemp(prefix="wm_")
 
@@ -250,31 +183,13 @@ def process():
         up.save(in_path)
         out_name = f"{os.path.splitext(docx_name)[0]}_watermarked.docx"
         out_path = os.path.join(workdir, f"out_{j}_{out_name}")
-        report = wm.process(in_path, pairs, out_path, width_pct=width_pct, workdir=workdir)
+        report = wm.process(in_path, pairs, out_path, width_pct=width_pct,
+                            workdir=workdir, watermark_text=watermark_text,
+                            watermark_opacity=watermark_opacity)
         with open(out_path, "rb") as fh:
             data = fh.read()
         docs.append({"src": base, "name": out_name, "out_path": out_path,
                      "data": data, "report": report})
-
-    # Optionally convert each document to PDF and stamp a diagonal mark. Done per
-    # file so one slow/failed conversion can't lose the whole batch; a failed
-    # file simply keeps its .docx.
-    conv_errors: list[tuple[str, str]] = []
-    if to_pdf:
-        pdfdir = os.path.join(workdir, "pdf")
-        os.makedirs(pdfdir, exist_ok=True)
-        profile = os.path.join(pdfdir, "_lo_profile")
-        for d in docs:
-            try:
-                pdf_path = _docx_to_pdf_one(d["out_path"], pdfdir, profile)
-                with open(pdf_path, "rb") as fh:
-                    pdf = fh.read()
-                if diagonal:
-                    pdf = _stamp_diagonal(pdf, diagonal, diagonal_opacity)
-                d["data"] = pdf
-                d["name"] = f"{os.path.splitext(d['name'])[0]}.pdf"
-            except Exception as exc:
-                conv_errors.append((d["src"], str(exc)))  # keep the .docx instead
 
     # Single document -> the per-chapter report page.
     if len(docs) == 1:
@@ -284,7 +199,6 @@ def process():
         return render_template(
             "result.html", report=d["report"], token=token, download_name=d["name"],
             width_pct=round(width_pct * 100),
-            pdf_error=(conv_errors[0][1] if conv_errors else None),
         )
 
     # Multiple documents -> collect all into a "watermarked" folder / zip.
@@ -318,7 +232,6 @@ def process():
         total_watermarked=sum(d["report"].watermarked for d in docs),
         width_pct=round(width_pct * 100),
         saved_dir=saved_dir, base=(str(LOCAL_SAVE_DIR) if LOCAL_SAVE_DIR else None),
-        conv_errors=conv_errors,
     )
 
 

@@ -55,13 +55,10 @@
     </div>
 
     <fieldset style="border:1px solid rgba(127,127,127,.3);border-radius:8px;padding:.5rem 1rem 1rem;">
-      <legend style="font-weight:700;padding:0 .4rem;">Export</legend>
-      <label style="display:flex;align-items:center;gap:.5rem;font-weight:600;">
-        <input id="to_pdf" name="to_pdf" type="checkbox" value="1"> Convert watermarked files to PDF
-      </label>
-      <label for="diagonal_text">Diagonal text watermark <span class="hint">(optional; drawn on every page, forces PDF)</span></label>
+      <legend style="font-weight:700;padding:0 .4rem;">Diagonal watermark (optional)</legend>
+      <label for="diagonal_text">Watermark text <span class="hint">(added diagonally to every page of the .docx; blank = none)</span></label>
       <input id="diagonal_text" name="diagonal_text" type="text" placeholder="e.g. CONFIDENTIAL">
-      <label for="diagonal_opacity">Diagonal opacity <span class="hint">% (25 = 75% transparent)</span></label>
+      <label for="diagonal_opacity">Watermark opacity <span class="hint">% (25 = 75% transparent)</span></label>
       <input id="diagonal_opacity" name="diagonal_opacity" type="number" min="1" max="100" value="25">
     </fieldset>
 
