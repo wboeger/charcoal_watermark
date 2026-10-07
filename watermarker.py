@@ -18,7 +18,7 @@ from xml.sax.saxutils import escape
 from docx import Document
 from docx.shared import Emu, Inches
 from docx.oxml import parse_xml
-from docx.oxml.ns import nsdecls
+from docx.oxml.ns import nsdecls, qn
 from PIL import Image as PILImage
 
 # Fallbacks for sections that don't declare page geometry (rare).
@@ -203,6 +203,25 @@ def _apply_opacity(src_path: str, opacity: float, workdir: str) -> str:
     return out_path
 
 
+def _strip_existing_figures(document) -> None:
+    """Remove any previously inserted ``Figure <chapter>`` drawings.
+
+    Makes reprocessing an already-watermarked ``.docx`` idempotent. Without
+    this, running the tool again over its own output would leave stale
+    anchors (possibly from an older version of this tool) in place for every
+    heading whose image is claimed by an earlier heading first in this run,
+    since a given image is only ever inserted once per document.
+    """
+    body = document.element.body
+    for doc_pr in body.findall(f".//{qn('wp:docPr')}"):
+        if not (doc_pr.get("name") or "").startswith("Figure "):
+            continue
+        run = doc_pr.getparent().getparent().getparent()  # docPr -> anchor -> drawing -> run
+        parent = run.getparent()
+        if parent is not None:
+            parent.remove(run)
+
+
 def process(
     docx_path: str,
     pngs: list[tuple[str, str]],
@@ -227,6 +246,7 @@ def process(
     workdir = workdir or os.path.dirname(output_path) or "."
 
     document = Document(docx_path)
+    _strip_existing_figures(document)
     page_w, page_h, left_margin, right_margin, bottom_margin, top_margin = _first_section_geometry(document)
     usable_w = max(1, page_w - left_margin - right_margin)
     usable_h = max(1, page_h - top_margin - bottom_margin)
