@@ -2,8 +2,9 @@
 
 Upload one or more ``.docx`` files (or a whole folder) plus figure images. Each
 ``Heading 1`` chapter gets the image whose file name shares its name inserted
-beside the title (tight wrap, opaque). Optionally add a diagonal, semi-transparent
-text watermark on every page. Output is always ``.docx``.
+at the title, auto-sized to the full width between the page margins and placed
+behind the text, with configurable opacity. Optionally add a diagonal,
+semi-transparent text watermark on every page. Output is always ``.docx``.
 """
 
 from __future__ import annotations
@@ -153,7 +154,7 @@ def process():
     if not marks:
         abort(400, "Please upload at least one figure (.png, .jpg, .tif or .pdf).")
 
-    width_pct = _pct(request.form.get("width_pct"), 30)
+    image_opacity = _pct(request.form.get("figure_opacity"), 100)
     watermark_text = (request.form.get("diagonal_text") or "").strip()
     watermark_opacity = _pct(request.form.get("diagonal_opacity"), 25)
 
@@ -184,7 +185,7 @@ def process():
         up.save(in_path)
         out_name = f"{os.path.splitext(docx_name)[0]}_watermarked.docx"
         out_path = os.path.join(workdir, f"out_{j}_{out_name}")
-        report = wm.process(in_path, pairs, out_path, width_pct=width_pct,
+        report = wm.process(in_path, pairs, out_path, image_opacity=image_opacity,
                             workdir=workdir, watermark_text=watermark_text,
                             watermark_opacity=watermark_opacity)
         with open(out_path, "rb") as fh:
@@ -210,7 +211,7 @@ def process():
             _remember(_OUTPUTS, token, ("bytes", d["data"], d["name"]))
         return render_template(
             "result.html", report=d["report"], token=token, download_name=d["name"],
-            width_pct=round(width_pct * 100), saved_dir=saved_dir,
+            figure_opacity=round(image_opacity * 100), saved_dir=saved_dir,
         )
 
     # Multiple documents -> collect all into a "processadas" folder / zip.
@@ -242,7 +243,7 @@ def process():
         "result_batch.html",
         token=token, files=files, count=len(docs),
         total_watermarked=sum(d["report"].watermarked for d in docs),
-        width_pct=round(width_pct * 100),
+        figure_opacity=round(image_opacity * 100),
         saved_dir=saved_dir, base=(str(LOCAL_SAVE_DIR) if LOCAL_SAVE_DIR else None),
     )
 

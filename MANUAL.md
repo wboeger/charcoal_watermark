@@ -1,7 +1,8 @@
 # Manual do Chapter Watermarker
 
-Aplicativo web (Flask) para **inserir uma figura ao lado do título de cada
-capítulo** de documentos `.docx` e, opcionalmente, aplicar uma **marca d'água
+Aplicativo web (Flask) para **inserir uma figura atrás do título de cada
+capítulo** de documentos `.docx`, com largura automática (ocupando toda a
+área útil entre as margens) e, opcionalmente, aplicar uma **marca d'água
 diagonal de texto** em todas as páginas — tudo **gravado no próprio `.docx`**.
 Processa **um arquivo, vários ou uma pasta inteira** de uma vez.
 
@@ -72,7 +73,7 @@ Páginas:
 
 O app percorre os parágrafos com estilo **`Heading 1`** (Título 1). Para cada
 capítulo, procura uma imagem cujo nome **compartilhe uma palavra** com o título
-(correspondência por palavra, não por substring) e a insere ao lado do título.
+(correspondência por palavra, não por substring) e a insere atrás do título.
 
 ### Correspondência por palavra (token)
 
@@ -87,10 +88,15 @@ capítulo, procura uma imagem cujo nome **compartilhe uma palavra** com o títul
 
 ### Layout da figura
 
-- **À direita** do número e nome do capítulo.
-- **~30% da largura da página** (ajustável no formulário).
-- **Quebra de texto "tight"** (o texto flui ao lado da figura).
-- **Opaca (0% de transparência).**
+- **Na posição do título do capítulo**, ocupando **toda a largura útil da
+  página** (do limite da margem esquerda ao da margem direita), calculada
+  automaticamente — sem necessidade de ajuste manual.
+- Se a altura resultante ultrapassar a área útil da página (entre as margens
+  superior e inferior), a figura é reduzida proporcionalmente para caber.
+- **Atrás do texto** (`wrap: behind text`) — o texto do capítulo flui por
+  cima da figura.
+- **Transparência ajustável no formulário** ("Figure transparency", 100% =
+  opaca; valores menores deixam o texto mais visível por cima).
 - **Fundo:** PNG/PDF com transparência mantém o fundo removido; caso contrário
   aparece em branco.
 
@@ -142,7 +148,7 @@ sempre `.docx`.
 |---|---|---|
 | GET | `/` | Página principal. |
 | GET | `/health` | Retorna `ok`. |
-| POST | `/process` | Processa. Campos: `docx` (múltiplos/pasta), `watermarks` (múltiplos), `width_pct`, `diagonal_text`, `diagonal_opacity`. |
+| POST | `/process` | Processa. Campos: `docx` (múltiplos/pasta), `watermarks` (múltiplos), `figure_opacity`, `diagonal_text`, `diagonal_opacity`. |
 | GET | `/download/<token>` | Baixa o resultado (`.docx` ou `.zip`). |
 | GET | `/manual` | Este manual (PDF). |
 

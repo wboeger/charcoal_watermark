@@ -2,9 +2,10 @@
 
 A "chapter" is a ``Heading 1`` paragraph. A figure image is bound to a chapter
 when they share a significant word (token match), so numbered headings like
-"1 Chordata" still match "Chordata.png". The figure is inserted, fully opaque,
-floating to the right of the chapter title with tight text wrap, on the first
-page where that chapter name occurs.
+"1 Chordata" still match "Chordata.png". The figure is auto-sized to the full
+width between the page margins (capped to stay within the usable page height),
+placed behind the text at the chapter title, on the first page where that
+chapter name occurs.
 """
 
 from __future__ import annotations
@@ -28,30 +29,23 @@ _DEFAULT_MARGIN = Inches(1)
 _ANCHOR_XML = (
     '<w:r {ns}>'
     '<w:drawing>'
-    '<wp:anchor distT="0" distB="0" distL="114300" distR="114300" simplePos="0"'
-    ' relativeHeight="251658240" behindDoc="0" locked="0" layoutInCell="1"'
+    '<wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0"'
+    ' relativeHeight="251658240" behindDoc="1" locked="0" layoutInCell="1"'
     ' allowOverlap="1">'
     '<wp:simplePos x="0" y="0"/>'
-    '<wp:positionH relativeFrom="margin"><wp:align>right</wp:align></wp:positionH>'
+    '<wp:positionH relativeFrom="margin"><wp:align>left</wp:align></wp:positionH>'
     '<wp:positionV relativeFrom="paragraph"><wp:posOffset>0</wp:posOffset></wp:positionV>'
     '<wp:extent cx="{cx}" cy="{cy}"/>'
     '<wp:effectExtent l="0" t="0" r="0" b="0"/>'
-    '<wp:wrapTight wrapText="left">'
-    '<wp:wrapPolygon edited="0">'
-    '<wp:start x="0" y="0"/>'
-    '<wp:lineTo x="0" y="21600"/>'
-    '<wp:lineTo x="21600" y="21600"/>'
-    '<wp:lineTo x="21600" y="0"/>'
-    '<wp:lineTo x="0" y="0"/>'
-    '</wp:wrapPolygon>'
-    '</wp:wrapTight>'
+    '<wp:wrapNone/>'
     '<wp:docPr id="{pid}" name="{name}"/>'
     '<wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr>'
     '<a:graphic>'
     '<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">'
     '<pic:pic>'
     '<pic:nvPicPr><pic:cNvPr id="{pid}" name="{name}"/><pic:cNvPicPr/></pic:nvPicPr>'
-    '<pic:blipFill><a:blip r:embed="{rid}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
+    '<pic:blipFill><a:blip r:embed="{rid}"/>'
+    '<a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
     '<pic:spPr>'
     '<a:xfrm><a:off x="0" y="0"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm>'
     '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>'
@@ -132,9 +126,10 @@ def _first_section_geometry(document):
     page_w = section.page_width or _DEFAULT_PAGE_W
     page_h = section.page_height or _DEFAULT_PAGE_H
     left = section.left_margin or _DEFAULT_MARGIN
+    right = section.right_margin or _DEFAULT_MARGIN
     bottom = section.bottom_margin or _DEFAULT_MARGIN
     top = section.top_margin or _DEFAULT_MARGIN
-    return int(page_w), int(page_h), int(left), int(bottom), int(top)
+    return int(page_w), int(page_h), int(left), int(right), int(bottom), int(top)
 
 
 # A Word (VML) diagonal text watermark placed in a header so it repeats on every
@@ -186,26 +181,54 @@ def _add_text_watermark(document, text: str, opacity: float) -> None:
         header._element.append(parse_xml(xml))
 
 
+def _apply_opacity(src_path: str, opacity: float, workdir: str) -> str:
+    """Return a path to a PNG with ``opacity`` baked into its alpha channel.
+
+    ``opacity`` 1.0 (fully opaque) returns ``src_path`` unchanged. OOXML's
+    ``alphaModFix`` picture-transparency effect is not reliably honored by
+    every renderer, so the opacity is applied to the pixels directly instead,
+    which every renderer respects.
+    """
+    if opacity >= 0.999:
+        return src_path
+    with PILImage.open(src_path) as im:
+        im = im.convert("RGBA")
+        r, g, b, a = im.split()
+        a = a.point(lambda v: int(v * opacity))
+        im.putalpha(a)
+        out_path = os.path.join(
+            workdir, f"_op{round(opacity * 100)}_{os.path.basename(src_path)}"
+        )
+        im.save(out_path, format="PNG")
+    return out_path
+
+
 def process(
     docx_path: str,
     pngs: list[tuple[str, str]],
     output_path: str,
-    width_pct: float = 0.30,
     workdir: str | None = None,
+    image_opacity: float = 1.0,
     watermark_text: str = "",
     watermark_opacity: float = 0.25,
 ) -> Report:
     """Insert matched figures beside chapter headings and save to ``output_path``.
 
     ``pngs`` is a list of ``(disk_path, original_name)``; matching uses the
-    original name. ``width_pct`` is a fraction in (0, 1]. If ``watermark_text`` is
+    original name. Each figure is auto-sized to the full width between the page
+    margins (capped so it never exceeds the usable page height), placed behind
+    the text at the chapter heading. ``image_opacity`` is a fraction in (0, 1];
+    below 1.0 it is baked into the embedded PNG's alpha channel (OOXML's
+    alphaModFix picture effect is unreliable across renderers, so pixel alpha
+    is used instead — it is honored everywhere). If ``watermark_text`` is
     given, a diagonal semi-transparent text watermark is added to every page.
     """
-    width_pct = max(0.01, min(1.0, width_pct))
+    image_opacity = max(0.0, min(1.0, image_opacity))
     workdir = workdir or os.path.dirname(output_path) or "."
 
     document = Document(docx_path)
-    page_w, page_h, left_margin, bottom_margin, top_margin = _first_section_geometry(document)
+    page_w, page_h, left_margin, right_margin, bottom_margin, top_margin = _first_section_geometry(document)
+    usable_w = max(1, page_w - left_margin - right_margin)
     usable_h = max(1, page_h - top_margin - bottom_margin)
 
     report = Report()
@@ -236,16 +259,18 @@ def process(
             with PILImage.open(png_path) as im:
                 processed[png_path] = im.size
         px_w, px_h = processed[png_path]
+        embed_path = _apply_opacity(png_path, image_opacity, workdir)
 
-        cx = int(page_w * width_pct)              # ~30% of page width
+        cx = usable_w                               # full width between the margins
         cy = int(cx * px_h / px_w)
-        if cy > usable_h:                          # keep the figure within the body
+        if cy > usable_h:                           # keep the figure within the page body
             cy = usable_h
             cx = int(cy * px_w / px_h)
 
-        # Embed the image at full opacity (no alpha scaling); a transparent PNG
-        # keeps its removed background, otherwise it shows on white.
-        rid, _image = document.part.get_or_add_image(png_path)
+        # Figure is placed behind the text, at the requested opacity (already
+        # baked into embed_path's pixel alpha). A transparent PNG keeps its
+        # removed background, otherwise it shows through at that opacity.
+        rid, _image = document.part.get_or_add_image(embed_path)
         pic_id += 1
         run_xml = _ANCHOR_XML.format(
             ns=nsdecls("w", "wp", "a", "pic", "r"),
