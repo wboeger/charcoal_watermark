@@ -33,7 +33,7 @@ _ANCHOR_XML = (
     ' relativeHeight="251658240" behindDoc="1" locked="0" layoutInCell="1"'
     ' allowOverlap="1">'
     '<wp:simplePos x="0" y="0"/>'
-    '<wp:positionH relativeFrom="margin"><wp:align>left</wp:align></wp:positionH>'
+    '<wp:positionH relativeFrom="margin"><wp:align>center</wp:align></wp:positionH>'
     '<wp:positionV relativeFrom="paragraph"><wp:posOffset>0</wp:posOffset></wp:positionV>'
     '<wp:extent cx="{cx}" cy="{cy}"/>'
     '<wp:effectExtent l="0" t="0" r="0" b="0"/>'
